@@ -1,11 +1,14 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
 import {
   BadgeHelp,
   BarChart3,
   Bell,
   BookOpenCheck,
   CalendarDays,
+  Check,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleDashed,
   Coins,
   DatabaseZap,
@@ -15,6 +18,8 @@ import {
   Image as ImageIcon,
   Inbox,
   LayoutDashboard,
+  Linkedin,
+  LoaderCircle,
   MessageSquareReply,
   Mic,
   MoreHorizontal,
@@ -29,6 +34,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Target,
+  Twitter,
   Upload,
   UserPlus,
   UserRoundCheck,
@@ -79,17 +85,31 @@ const routes = [
 ];
 
 const routeMeta: Record<string, { title: string; subtitle?: string }> = {
-  "/dashboard": { title: "Dashboard", subtitle: "Agent overview" },
+  "/dashboard": { title: "Dashboard", subtitle: "Overview" },
   "/copilot": { title: "Copilot", subtitle: "Ask your agent" },
-  "/flows": { title: "Engagement Agent", subtitle: "Comments, replies, account health, and rules." },
+  "/flows": { title: "Engagement Agent", subtitle: "Replies and rules." },
   "/flows/founder-led": { title: "Founder-led Content", subtitle: "Sequence builder" },
-  "/audience": { title: "Relationships", subtitle: "People, memory, and lifecycle signals." },
-  "/queue": { title: "Queue", subtitle: "Review, schedule, and publish content." },
-  "/files": { title: "Files", subtitle: "Assets, videos, screenshots, and exports." },
-  "/sources": { title: "Sources", subtitle: "Connect and manage source data." },
-  "/insights": { title: "Insights", subtitle: "Lead generation performance." },
-  "/settings": { title: "Settings", subtitle: "Workspace, billing, sources, and safety controls." },
+  "/audience": { title: "Relationships", subtitle: "People and memory." },
+  "/queue": { title: "Queue", subtitle: "Review and publish." },
+  "/files": { title: "Files", subtitle: "Assets and proof." },
+  "/sources": { title: "Sources", subtitle: "Source data." },
+  "/insights": { title: "Insights", subtitle: "Performance." },
+  "/settings": { title: "Settings", subtitle: "Account and billing." },
 };
+
+type OnboardingScreen = "start" | "connect" | "review" | "screening" | "channels";
+
+type OnboardingProfile = {
+  name: string;
+  companyName: string;
+  website: string;
+  designation: string;
+  companySummary: string;
+  productFocus: string;
+  customNotes: string;
+};
+
+const onboardingSequence: OnboardingScreen[] = ["connect", "review", "screening", "channels"];
 
 type ToastKind = "success" | "info";
 
@@ -103,7 +123,7 @@ type DemoToast = {
 type ToastHandler = (title: string, detail?: string, kind?: ToastKind) => void;
 
 function normalizePath(pathname: string) {
-  if (pathname === "/" || pathname === "") return "/dashboard";
+  if (pathname === "/" || pathname === "" || pathname === "/onboarding") return "/onboarding";
   if (routeMeta[pathname]) return pathname;
   return "/dashboard";
 }
@@ -123,7 +143,7 @@ export function App() {
 
   useEffect(() => {
     if (window.location.pathname === "/") {
-      window.history.replaceState({}, "", "/dashboard");
+      window.history.replaceState({}, "", "/onboarding");
     }
   }, []);
 
@@ -143,6 +163,15 @@ export function App() {
       setToast((current) => (current?.id === id ? null : current));
     }, 2600);
   };
+
+  const completeOnboarding = () => {
+    window.history.pushState({}, "", "/dashboard");
+    setPath("/dashboard");
+  };
+
+  if (activePath === "/onboarding") {
+    return <OnboardingPage onComplete={completeOnboarding} />;
+  }
 
   return (
     <div className="app-shell">
@@ -167,6 +196,572 @@ export function App() {
       <ReplyDrawer reply={selectedReply} onClose={() => setSelectedReply(null)} onToast={showToast} />
       <GenerateModal open={generateOpen} onClose={() => setGenerateOpen(false)} onToast={showToast} />
     </div>
+  );
+}
+
+function OnboardingPage({ onComplete }: { onComplete: () => void }) {
+  const [screen, setScreen] = useState<OnboardingScreen>("start");
+  const [linkedInState, setLinkedInState] = useState<"idle" | "connecting" | "connected">("idle");
+  const [xState, setXState] = useState<"idle" | "connecting" | "connected">("idle");
+  const [slackState, setSlackState] = useState<"idle" | "connecting" | "connected">("idle");
+  const [telegramState, setTelegramState] = useState<"idle" | "connecting" | "connected">("idle");
+  const [connectingAccount, setConnectingAccount] = useState<"LinkedIn" | "X" | "Slack" | "Telegram" | null>(null);
+  const [profile, setProfile] = useState<OnboardingProfile>({
+    name: "Jay Patil",
+    companyName: "Helixar",
+    website: "",
+    designation: "Founder",
+    companySummary:
+      "Helixar helps founder-led teams turn customer notes, market signals, and social activity into LinkedIn and X content that can be reviewed, scheduled, and posted from one workspace.",
+    productFocus: "LinkedIn posting, X posting, and engagement workflows for founder-led content.",
+    customNotes: "",
+  });
+
+  const currentIndex = onboardingSequence.indexOf(screen);
+  const goTo = (nextScreen: OnboardingScreen) => {
+    setScreen(nextScreen);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const goNext = () => {
+    const next = onboardingSequence[Math.min(currentIndex + 1, onboardingSequence.length - 1)];
+    if (screen === "channels") {
+      onComplete();
+      return;
+    }
+    goTo(next);
+  };
+  const goBack = () => {
+    if (screen === "connect") {
+      goTo("start");
+      return;
+    }
+    const previous = onboardingSequence[Math.max(currentIndex - 1, 0)];
+    goTo(previous);
+  };
+
+  const updateProfile = (key: keyof OnboardingProfile, value: string) => {
+    setProfile((current) => ({ ...current, [key]: value }));
+  };
+
+  const connectAccount = (account: "LinkedIn" | "X" | "Slack" | "Telegram") => {
+    setConnectingAccount(account);
+    if (account === "LinkedIn") setLinkedInState("connecting");
+    if (account === "X") setXState("connecting");
+    if (account === "Slack") setSlackState("connecting");
+    if (account === "Telegram") setTelegramState("connecting");
+    window.setTimeout(() => {
+      if (account === "LinkedIn") setLinkedInState("connected");
+      if (account === "X") setXState("connected");
+      if (account === "Slack") setSlackState("connected");
+      if (account === "Telegram") setTelegramState("connected");
+      setConnectingAccount(null);
+    }, 1250);
+  };
+
+  if (screen === "start") {
+    return (
+      <OnboardingCanvas>
+        <OnboardingBrand />
+        <section className="onboarding-start-card">
+          <span className="onboarding-ai-pill">
+            <Sparkles size={14} />
+            Helixar setup
+          </span>
+          <h1>Helixar system, let's get started.</h1>
+          <p>Give Helixar the founder, company, and channel context it needs to write, post, and engage in your voice.</p>
+          <button className="onboarding-primary" type="button" onClick={() => goTo("connect")}>
+            Get started
+            <ChevronRight size={17} />
+          </button>
+        </section>
+      </OnboardingCanvas>
+    );
+  }
+
+  return (
+    <OnboardingCanvas>
+      <OnboardingBrand />
+      <OnboardingProgress activeStep={getOnboardingProgressStep(screen)} />
+      {screen === "connect" ? (
+        <PrimaryConnectStep
+          profile={profile}
+          onChange={updateProfile}
+          linkedInState={linkedInState}
+          xState={xState}
+          onConnectLinkedIn={() => connectAccount("LinkedIn")}
+          onConnectX={() => connectAccount("X")}
+          onNext={goNext}
+          onBack={goBack}
+        />
+      ) : null}
+      {screen === "review" ? <CompanyContextReviewStep profile={profile} onChange={updateProfile} onNext={goNext} onBack={goBack} /> : null}
+      {screen === "screening" ? <ScreeningQuestionsStep profile={profile} onNext={goNext} onBack={goBack} /> : null}
+      {screen === "channels" ? (
+        <FinalChannelsStep
+          slackState={slackState}
+          telegramState={telegramState}
+          onConnectSlack={() => connectAccount("Slack")}
+          onConnectTelegram={() => connectAccount("Telegram")}
+          onNext={goNext}
+          onBack={goBack}
+        />
+      ) : null}
+      {connectingAccount ? <ConnectionModal account={connectingAccount} /> : null}
+    </OnboardingCanvas>
+  );
+}
+
+function getOnboardingProgressStep(screen: OnboardingScreen) {
+  if (screen === "connect") return 1;
+  if (screen === "review") return 2;
+  if (screen === "screening") return 3;
+  return 4;
+}
+
+function OnboardingCanvas({ children }: { children: ReactNode }) {
+  return (
+    <main className="onboarding-canvas">
+      <div className="onboarding-bg-mark left" />
+      <div className="onboarding-bg-mark right" />
+      <div className="onboarding-content">{children}</div>
+    </main>
+  );
+}
+
+function OnboardingBrand() {
+  return (
+    <div className="onboarding-brand" aria-label="Helixar">
+      <span className="helixar-mark">H</span>
+      <strong>helixar</strong>
+    </div>
+  );
+}
+
+function OnboardingProgress({ activeStep }: { activeStep: number }) {
+  return (
+    <div className="onboarding-progress" aria-label="Onboarding progress">
+      {[1, 2, 3, 4].map((step) => (
+        <div className="onboarding-progress-item" key={step}>
+          <span className={step < activeStep ? "done" : step === activeStep ? "active" : undefined}>
+            {step < activeStep ? <Check size={15} /> : step}
+          </span>
+          {step < 4 ? <i /> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OnboardingCard({
+  children,
+  className = "",
+  stepLabel,
+}: {
+  children: ReactNode;
+  className?: string;
+  stepLabel: string;
+}) {
+  return (
+    <section className={`onboarding-card ${className}`}>
+      <span className="onboarding-step-label">{stepLabel}</span>
+      {children}
+    </section>
+  );
+}
+
+function OnboardingFooter({
+  onBack,
+  onNext,
+  nextLabel = "Next step",
+  leftNote,
+}: {
+  onBack: () => void;
+  onNext: () => void;
+  nextLabel?: string;
+  leftNote?: string;
+}) {
+  return (
+    <div className="onboarding-footer">
+      <button className="onboarding-back" type="button" onClick={onBack}>
+        <ChevronLeft size={15} />
+        Previous
+      </button>
+      <div>
+        {leftNote ? <span>{leftNote}</span> : null}
+        <button className="onboarding-primary" type="button" onClick={onNext}>
+          {nextLabel}
+          <ChevronRight size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PrimaryConnectStep({
+  profile,
+  onChange,
+  linkedInState,
+  xState,
+  onConnectLinkedIn,
+  onConnectX,
+  onNext,
+  onBack,
+}: {
+  profile: OnboardingProfile;
+  onChange: (key: keyof OnboardingProfile, value: string) => void;
+  linkedInState: "idle" | "connecting" | "connected";
+  xState: "idle" | "connecting" | "connected";
+  onConnectLinkedIn: () => void;
+  onConnectX: () => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <OnboardingCard className="connect-step" stepLabel="Step 1 of 4">
+      <div className="onboarding-card-heading">
+        <h1>Connect your context</h1>
+        <p>LinkedIn, X, and your website are enough to build the first draft.</p>
+      </div>
+      <label className="onboarding-field onboarding-field-full onboarding-website-field">
+        <span>Website</span>
+        <input value={profile.website} onChange={(event) => onChange("website", event.target.value)} placeholder="https://yourcompany.com" />
+      </label>
+      <WebsiteAnalysisPreview website={profile.website} />
+      <div className="onboarding-connect-grid">
+        <article className="connect-account-card">
+          <div className="connect-account-head">
+            <span className="connect-icon linkedin"><Linkedin size={18} /></span>
+            <div>
+              <h3>Connect LinkedIn account</h3>
+              <p>{linkedInState === "connected" ? "Connected" : "For posts and comments"}</p>
+            </div>
+          </div>
+          <ul>
+            <li>Posts and comments</li>
+            <li>Relationship memory</li>
+            <li>Review before engagement</li>
+          </ul>
+          <button className="connect-linkedin-button" type="button" onClick={onConnectLinkedIn} disabled={linkedInState === "connected"}>
+            {linkedInState === "connected" ? "LinkedIn connected" : "Connect LinkedIn"}
+          </button>
+        </article>
+
+        <article className="connect-account-card">
+          <div className="connect-account-head">
+            <span className="connect-icon x"><Twitter size={18} /></span>
+            <div>
+              <h3>Connect X account</h3>
+              <p>{xState === "connected" ? "Connected" : "For posts and replies"}</p>
+            </div>
+          </div>
+          <ul>
+            <li>Posts and threads</li>
+            <li>Reply suggestions</li>
+            <li>Daily limits</li>
+          </ul>
+          <button className="connect-x-button" type="button" onClick={onConnectX} disabled={xState === "connected"}>
+            {xState === "connected" ? "X connected" : "Connect X"}
+          </button>
+        </article>
+      </div>
+      <OnboardingFooter onBack={onBack} onNext={onNext} nextLabel="Review draft" leftNote="Connect later" />
+    </OnboardingCard>
+  );
+}
+
+function WebsiteAnalysisPreview({ website }: { website: string }) {
+  const displayWebsite = website || "your website";
+
+  return (
+    <div className="website-analysis-card" aria-label="Website analysis preview">
+      <div>
+        <span className="analysis-pulse" />
+        <strong>Analyzing {displayWebsite}</strong>
+        <p>Positioning, product, audience, proof</p>
+      </div>
+      <div className="analysis-lines" aria-hidden>
+        <i />
+        <i />
+        <i />
+      </div>
+    </div>
+  );
+}
+
+function ConnectionModal({ account }: { account: "LinkedIn" | "X" | "Slack" | "Telegram" }) {
+  const accountIcon =
+    account === "LinkedIn" ? (
+      <Linkedin size={20} />
+    ) : account === "X" ? (
+      <Twitter size={20} />
+    ) : (
+      <SourceBadge source={account} />
+    );
+
+  return (
+    <div className="onboarding-modal-backdrop" role="dialog" aria-modal="true" aria-label={`Connecting to ${account}`}>
+      <div className="onboarding-connection-modal">
+        <div className="modal-title-row">
+          <strong>Connect {account} account</strong>
+          <button type="button" aria-label="Close">
+            x
+          </button>
+        </div>
+        <span className={account === "LinkedIn" ? "modal-linkedin-icon" : account === "X" ? "modal-x-icon" : "modal-source-icon"}>{accountIcon}</span>
+        <h2>Connecting to {account}</h2>
+        <p>Please wait while Helixar checks account access and prepares the workspace context.</p>
+        <LoaderCircle className="onboarding-loader" size={22} />
+      </div>
+    </div>
+  );
+}
+
+function CompanyContextReviewStep({
+  profile,
+  onChange,
+  onNext,
+  onBack,
+}: {
+  profile: OnboardingProfile;
+  onChange: (key: keyof OnboardingProfile, value: string) => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  const founderName = profile.name || "Jay Patil";
+  const founderRole = profile.designation || "Founder";
+  const companyName = profile.companyName || "Helixar";
+  const website = profile.website || "Website not added";
+
+  return (
+    <div className="onboarding-review-workspace">
+      <OnboardingCard className="wide-step review-step" stepLabel="Step 2 of 4">
+        <span className="onboarding-ai-pill">
+          Scraped draft
+          <Sparkles size={12} />
+        </span>
+        <div className="onboarding-card-heading">
+          <h1>What Helixar understood</h1>
+          <p>Edit the draft or add context in the agent panel.</p>
+        </div>
+        <div className="onboarding-scroll-region">
+          <div className="company-review-grid">
+            <article className="review-summary-card">
+              <span>Founder</span>
+              <strong>{founderName}</strong>
+              <p>{founderRole}</p>
+            </article>
+            <article className="review-summary-card">
+              <span>Company</span>
+              <strong>{companyName}</strong>
+              <p>{website}</p>
+            </article>
+          </div>
+          <div className="onboarding-form-grid onboarding-profile-grid">
+            <label className="onboarding-field">
+              <span>Name</span>
+              <input value={profile.name} onChange={(event) => onChange("name", event.target.value)} placeholder="Jay Patil" />
+            </label>
+            <label className="onboarding-field">
+              <span>Role</span>
+              <input value={profile.designation} onChange={(event) => onChange("designation", event.target.value)} placeholder="Founder" />
+            </label>
+            <label className="onboarding-field">
+              <span>Company</span>
+              <input value={profile.companyName} onChange={(event) => onChange("companyName", event.target.value)} placeholder="Helixar" />
+            </label>
+            <label className="onboarding-field">
+              <span>Website</span>
+              <input value={profile.website} onChange={(event) => onChange("website", event.target.value)} placeholder="https://helixar.pro" />
+            </label>
+          </div>
+          <label className="onboarding-field onboarding-field-full">
+            <span>Company summary</span>
+            <textarea value={profile.companySummary} onChange={(event) => onChange("companySummary", event.target.value)} />
+          </label>
+          <div className="company-edit-panel">
+            <label className="onboarding-field">
+              <span>Product focus</span>
+              <textarea value={profile.productFocus} onChange={(event) => onChange("productFocus", event.target.value)} />
+            </label>
+            <label className="onboarding-field">
+              <span>Extra notes</span>
+              <textarea
+                value={profile.customNotes}
+                onChange={(event) => onChange("customNotes", event.target.value)}
+                placeholder="Audience, proof, claims to avoid..."
+              />
+            </label>
+          </div>
+        </div>
+        <OnboardingFooter onBack={onBack} onNext={onNext} nextLabel="Review rules" />
+      </OnboardingCard>
+      <OnboardingAgentPanel mode="review" />
+    </div>
+  );
+}
+
+function ScreeningQuestionsStep({
+  profile,
+  onNext,
+  onBack,
+}: {
+  profile: OnboardingProfile;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  const companyName = profile.companyName || "your company";
+
+  return (
+    <OnboardingCard className="wide-step voice-setup-step rules-review-step" stepLabel="Step 3 of 4">
+      <span className="onboarding-ai-pill">
+        Review
+        <Mic size={12} />
+      </span>
+      <div className="onboarding-card-heading">
+        <h1>Review voice rules</h1>
+        <p>Edit anything before Helixar enters the dashboard.</p>
+      </div>
+      <div className="onboarding-scroll-region compact">
+        <div className="voice-setup-grid">
+          <article className="voice-profile-card">
+            <span>Voice</span>
+            <strong>Direct, useful, founder-led</strong>
+            <p>Specific pain, clear opinions, practical proof.</p>
+          </article>
+          <article className="post-scan-card">
+            <div>
+              <span>Sources</span>
+              <strong>{companyName}</strong>
+            </div>
+            <ul>
+              <li>LinkedIn posts</li>
+              <li>X posts and replies</li>
+              <li>Website context</li>
+            </ul>
+          </article>
+        </div>
+        <div className="voice-question-list">
+          {[
+            "Core message",
+            "Repeated opinions",
+            "Avoid saying",
+            "Ask before",
+          ].map((question) => (
+            <label className="voice-question-card" key={question}>
+              <span>{question}</span>
+              <textarea placeholder="Edit the rule..." />
+              <button type="button">
+                <Mic size={15} />
+                Audio
+              </button>
+            </label>
+          ))}
+        </div>
+      </div>
+      <OnboardingFooter onBack={onBack} onNext={onNext} nextLabel="Connect team channels" leftNote="Editable later" />
+    </OnboardingCard>
+  );
+}
+
+function FinalChannelsStep({
+  slackState,
+  telegramState,
+  onConnectSlack,
+  onConnectTelegram,
+  onNext,
+  onBack,
+}: {
+  slackState: "idle" | "connecting" | "connected";
+  telegramState: "idle" | "connecting" | "connected";
+  onConnectSlack: () => void;
+  onConnectTelegram: () => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <OnboardingCard className="wide-step final-channel-step" stepLabel="Step 4 of 4">
+      <span className="onboarding-ai-pill">
+        Team context
+        <MessageSquareReply size={12} />
+      </span>
+      <div className="onboarding-card-heading">
+        <h1>Connect team channels</h1>
+        <p>Slack and Telegram add live context.</p>
+      </div>
+      <div className="final-channel-grid">
+        <article className="connect-account-card final-channel-card">
+          <div className="connect-account-head">
+            <span className="channel-source-icon"><SourceBadge source="Slack" /></span>
+            <div>
+              <h3>Connect Slack</h3>
+              <p>{slackState === "connected" ? "Connected" : "Customer notes"}</p>
+            </div>
+          </div>
+          <ul>
+            <li>Customer phrasing</li>
+            <li>Content ideas</li>
+            <li>Review mode</li>
+          </ul>
+          <button className="connect-secondary-button" type="button" onClick={onConnectSlack} disabled={slackState === "connected"}>
+            {slackState === "connected" ? "Slack connected" : "Connect Slack"}
+          </button>
+        </article>
+        <article className="connect-account-card final-channel-card">
+          <div className="connect-account-head">
+            <span className="channel-source-icon"><SourceBadge source="Telegram" /></span>
+            <div>
+              <h3>Connect Telegram</h3>
+              <p>{telegramState === "connected" ? "Connected" : "Founder notes"}</p>
+            </div>
+          </div>
+          <ul>
+            <li>Quick notes</li>
+            <li>Draft context</li>
+            <li>Relationship memory</li>
+          </ul>
+          <button className="connect-secondary-button" type="button" onClick={onConnectTelegram} disabled={telegramState === "connected"}>
+            {telegramState === "connected" ? "Telegram connected" : "Connect Telegram"}
+          </button>
+        </article>
+      </div>
+      <OnboardingFooter onBack={onBack} onNext={onNext} nextLabel="Enter dashboard" leftNote="You can connect these later" />
+    </OnboardingCard>
+  );
+}
+
+function OnboardingAgentPanel({ mode }: { mode: "review" }) {
+  return (
+    <aside className={`onboarding-agent-panel ${mode}`}>
+      <div className="agent-panel-head">
+        <span>
+          <Rocket size={16} />
+        </span>
+        <div>
+          <strong>Helixar Agent</strong>
+          <p>Talk through the missing context</p>
+        </div>
+      </div>
+      <div className="agent-question-list">
+        {["Who do you sell to?", "What should posts repeat?", "What should Helixar avoid?", "When should it ask you?"].map((question) => (
+          <button type="button" key={question}>{question}</button>
+        ))}
+      </div>
+      <div className="agent-composer">
+        <label className="agent-panel-input">
+          <span>Answer here</span>
+          <textarea placeholder="Type naturally. Add audience, tone, boundaries, examples..." />
+        </label>
+        <div className="agent-panel-actions">
+          <button type="button">
+            <Mic size={15} />
+          </button>
+          <button type="button">
+            <Send size={15} />
+            Send
+          </button>
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -240,11 +835,6 @@ function TopBar({
           <Search size={17} aria-hidden />
           <input aria-label="Search" placeholder="Search" />
         </div>
-        <div className="global-badges" aria-label="Global status">
-          <span>7 sources</span>
-          <span>13 signals</span>
-          <span>Sync active</span>
-        </div>
         <button className="icon-button" type="button" title="Notifications" aria-label="Notifications">
           <Bell size={18} />
         </button>
@@ -265,7 +855,7 @@ function PersistentToast() {
       </span>
       <div>
         <strong>Source sync active</strong>
-        <p>Slack, calls, LinkedIn updated 38s ago</p>
+        <p>Slack, Telegram, LinkedIn updated 38s ago</p>
       </div>
     </div>
   );
@@ -328,9 +918,6 @@ function DashboardPage({
 }) {
   const [activeFilter, setActiveFilter] = useState(demoDashboard.defaultTimeFilter);
   const latestWarmIcps = demoIcpAudience.slice(0, 4);
-  const sourceHealth = demoSources.filter((source) => ["Slack", "Google Meet", "LinkedIn", "X", "Reddit", "Website", "Notion"].includes(source.name));
-  const activeSources = sourceHealth.filter((source) => source.status !== "Blocked").length;
-  const avgHealth = Math.round(sourceHealth.reduce((sum, source) => sum + source.health, 0) / sourceHealth.length);
   const agentOutputTotal = demoContentFlows.reduce((sum, flow) => sum + flow.drafts + flow.published + flow.replies, 0);
   const warmIcpTotal = demoContentFlows.reduce((sum, flow) => sum + flow.warmICPs, 0);
   const agentUpdates = demoContentFlows.slice(0, 4);
@@ -363,18 +950,16 @@ function DashboardPage({
         <article className="agent-summary-card">
           <div className="agent-summary-top">
             <span className="agent-summary-icon health">
-              <CircleDashed size={18} />
+              <CheckCircle2 size={18} />
             </span>
-            <StatusBadge status="Healthy" />
+            <StatusBadge status="Connected" />
           </div>
-          <p>Agent Health</p>
-          <strong>{avgHealth}%</strong>
-          <span>{activeSources} sources active, LinkedIn syncing</span>
-          <div className="agent-summary-foot">
-            <button className="link-button" type="button" onClick={() => onSelectSource(sourceHealth[0])}>
-              Review sources
-            </button>
-            <small>{demoMetrics.activeSources} live connectors</small>
+          <p>Channels</p>
+          <strong>2</strong>
+          <span>Slack and Telegram</span>
+          <div className="channel-connection-list">
+            <span><SourceBadge source="Slack" /> Connected</span>
+            <span><SourceBadge source="Telegram" /> Connected</span>
           </div>
         </article>
 
@@ -385,12 +970,12 @@ function DashboardPage({
             </span>
             <StatusBadge status="Active" />
           </div>
-          <p>Output created</p>
+          <p>Output</p>
           <strong>{agentOutputTotal}</strong>
-          <span>Drafts, posts, and replies</span>
+          <span>Posts and replies</span>
           <div className="agent-summary-foot">
-            <small>{demoQueue.drafts.length} drafts in review</small>
-            <small>{demoQueue.suggestedReplies.length} reply drafts</small>
+            <small>{demoQueue.drafts.length} drafts</small>
+            <small>{demoQueue.suggestedReplies.length} replies</small>
           </div>
         </article>
 
@@ -401,14 +986,14 @@ function DashboardPage({
             </span>
             <StatusBadge status="Rising" />
           </div>
-          <p>Warm relationships</p>
+          <p>Relationships</p>
           <strong>{warmIcpTotal}</strong>
-          <span>Warm leads from agent actions</span>
+          <span>Warm people</span>
           <div className="agent-summary-foot">
             <button className="link-button" type="button" onClick={() => onNavigate("/audience")}>
-              Open relationships
+              Open
             </button>
-            <small>{demoMetrics.voiceMatch}% match score</small>
+            <small>{demoMetrics.voiceMatch}% fit</small>
           </div>
         </article>
       </section>
@@ -489,15 +1074,15 @@ type ActivityPoint = {
 };
 
 const activityMetricLabels: Record<ActivityMetricKey, string> = {
-  actions: "Actions performed",
-  generated: "Content generated",
-  replies: "Replies sent",
+  actions: "Actions",
+  generated: "Content",
+  replies: "Replies",
 };
 
 const activityMetricColors: Record<ActivityMetricKey, string> = {
-  actions: "#14B8A6",
-  generated: "#7C3AED",
-  replies: "#F97316",
+  actions: "#F8F7F2",
+  generated: "#A8A8A0",
+  replies: "#63635D",
 };
 
 const activityByRange: Record<string, ActivityDatum[]> = {
@@ -634,7 +1219,7 @@ function ActivityChart({ activeFilter, showInspector = true }: { activeFilter: s
         <div className="activity-heading">
           <div>
             <p className="eyebrow">Activity Overview</p>
-            <h2>Actions performed</h2>
+            <h2>Actions</h2>
           </div>
           <div className="activity-controls">
             <div className="platform-toggle" aria-label="Platform filter">
@@ -658,7 +1243,7 @@ function ActivityChart({ activeFilter, showInspector = true }: { activeFilter: s
           <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Agent actions for ${activeFilter}`}>
             <defs>
               <linearGradient id="actions-fill" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor={activityMetricColors.actions} stopOpacity="0.24" />
+                <stop offset="0%" stopColor={activityMetricColors.actions} stopOpacity="0.22" />
                 <stop offset="100%" stopColor={activityMetricColors.actions} stopOpacity="0.02" />
               </linearGradient>
             </defs>
@@ -667,7 +1252,7 @@ function ActivityChart({ activeFilter, showInspector = true }: { activeFilter: s
               const y = padding.top + (1 - tick / maxValue) * plotHeight;
               return (
                 <g key={tick}>
-                  <line x1={padding.left} x2={width - padding.right} y1={y} y2={y} stroke="#E5E7EB" />
+                  <line x1={padding.left} x2={width - padding.right} y1={y} y2={y} stroke="rgba(255,255,255,0.12)" />
                   <text x={padding.left - 12} y={y + 4} textAnchor="end" className="chart-axis-label">
                     {formatCompact(tick)}
                   </text>
@@ -708,12 +1293,12 @@ function ActivityChart({ activeFilter, showInspector = true }: { activeFilter: s
                       x2={actionPoints[index].x}
                       y1={padding.top}
                       y2={height - padding.bottom}
-                      stroke="#CBD5E1"
+                      stroke="rgba(255,255,255,0.28)"
                       strokeDasharray="4 7"
                     />
                   ) : null}
                   {isActive ? (
-                    <circle cx={actionPoints[index].x} cy={actionPoints[index].y} r="6" fill="#FFFFFF" stroke={activityMetricColors.actions} strokeWidth="3" />
+                    <circle cx={actionPoints[index].x} cy={actionPoints[index].y} r="6" fill="#070707" stroke={activityMetricColors.actions} strokeWidth="3" />
                   ) : null}
                   <rect
                     x={zoneX}
@@ -756,9 +1341,9 @@ function ActivityChart({ activeFilter, showInspector = true }: { activeFilter: s
       {showInspector ? (
         <aside className="surface chart-inspector" aria-label="Selected chart values">
           <div>
-            <p className="eyebrow">Selected Point</p>
+            <p className="eyebrow">Selected</p>
             <h2>{activeDatum.fullLabel}</h2>
-            <span>{platform === "LI" ? "LinkedIn" : "X"} activity</span>
+            <span>{platform === "LI" ? "LinkedIn" : "X"}</span>
           </div>
           <div className="inspector-value">
             <strong>{activeDatum.actions}</strong>
@@ -776,9 +1361,8 @@ function ActivityChart({ activeFilter, showInspector = true }: { activeFilter: s
             ))}
           </div>
           <div className="inspector-note">
-            <strong>{formatCompact(totalActions)} total actions</strong>
-            <span>Peak: {peak.fullLabel} with {peak.actions} actions</span>
-            <p>Hover for a temporary readout. Click a date to keep these numbers pinned.</p>
+            <strong>{formatCompact(totalActions)} total</strong>
+            <span>Peak: {peak.fullLabel} - {peak.actions}</span>
           </div>
         </aside>
       ) : null}
@@ -793,22 +1377,28 @@ function CopilotPage({ onToast }: { onToast: ToastHandler }) {
   const [prompt, setPrompt] = useState("");
   const suggestedPrompts = [
     {
-      id: "find-leads",
-      title: "Find leads in San Francisco that recently raised funds in SaaS",
-      detail: "Uses LinkedIn, CRM, and public signal context",
-      icon: <Search size={17} />,
-    },
-    {
-      id: "campaign-performance",
-      title: "Show me my campaign outreach performance",
-      detail: "Summarizes actions, replies, and warm ICP movement",
+      id: "post-performance",
+      title: "Show me my post performance",
+      detail: "Compare LinkedIn and X posts by reach, replies, and relationship signals.",
       icon: <BarChart3 size={17} />,
     },
     {
-      id: "refine-icp",
-      title: "Refine ICP from best replies",
-      detail: "Looks at recent replies and high-fit customer segments",
+      id: "improve-next-post",
+      title: "How can I make my next post better?",
+      detail: "Review hook, proof, structure, and missing context before publishing.",
       icon: <Sparkles size={17} />,
+    },
+    {
+      id: "missing-context",
+      title: "What context is missing before I post?",
+      detail: "Find customer proof, voice samples, or source notes that would improve the draft.",
+      icon: <Search size={17} />,
+    },
+    {
+      id: "engagement-analysis",
+      title: "Analyze my LinkedIn and X engagement",
+      detail: "Show which reactions, comments, and replies are creating relationships.",
+      icon: <MessageSquareReply size={17} />,
     },
   ];
 
@@ -830,12 +1420,12 @@ function CopilotPage({ onToast }: { onToast: ToastHandler }) {
             <Sparkles size={22} />
           </div>
           <h2>Ask your agent</h2>
-          <p>Find leads, review campaigns, or draft messages.</p>
+          <p>Review post performance, improve drafts, or analyze LinkedIn and X engagement.</p>
           <div className="copilot-source-strip" aria-label="Connected context">
             <SourceBadge source="LinkedIn" />
+            <SourceBadge source="X" />
             <SourceBadge source="Slack" />
-            <SourceBadge source="Calls" />
-            <SourceBadge source="CRM" />
+            <SourceBadge source="Telegram" />
           </div>
         </div>
 
@@ -856,10 +1446,6 @@ function CopilotPage({ onToast }: { onToast: ToastHandler }) {
             <div className="composer-left-actions">
               <button className="icon-button" type="button" title="Attach source" aria-label="Attach source">
                 <Paperclip size={17} />
-              </button>
-              <button className="secondary-button slim" type="button">
-                <Sparkles size={14} />
-                Skill
               </button>
             </div>
             <div className="composer-right-actions">
@@ -1069,7 +1655,7 @@ const engagementActivityRows = [
 ];
 
 const engagementAccounts = [
-  { id: "account-linkedin-first", channel: "LinkedIn", name: "First account", owner: "Jay .", status: "Not connected", detail: "Connection email sent", initials: "J" },
+  { id: "account-linkedin-first", channel: "LinkedIn", name: "First account", owner: "Jay .", status: "Not connected", detail: "Connection link ready", initials: "J" },
   { id: "account-linkedin-second", channel: "LinkedIn", name: "Second account", owner: "Backup profile", status: "Not connected", detail: "Needs permission review", initials: "S" },
   { id: "account-x-primary", channel: "X", name: "Primary X account", owner: "Founder voice", status: "Connected", detail: "60 replies/comments daily cap", initials: "X" },
 ];
@@ -1095,11 +1681,11 @@ type RelationshipProfile = {
 const relationshipSections: RelationshipSection[] = ["Relationship Memory", "Customer Lifecycle"];
 
 const relationshipMetrics = [
-  { id: "icp-fit", label: "ICP-fit engagers", value: "126", detail: "+16% this period", icon: <UserRoundCheck size={18} />, tone: "success" },
-  { id: "repeat-engagers", label: "Repeat engagers", value: "74", detail: "+9% from agent replies", icon: <RefreshCw size={18} />, tone: "info" },
-  { id: "warm-relationships", label: "Warm relationships", value: "32", detail: "+14% from engagement", icon: <UsersRound size={18} />, tone: "accent" },
-  { id: "awaiting-response", label: "Awaiting response", value: "11", detail: "Follow-up windows open", icon: <MessageSquareReply size={18} />, tone: "warning" },
-  { id: "founder-action", label: "Needs founder action", value: "5", detail: "Human review next", icon: <Target size={18} />, tone: "neutral" },
+  { id: "icp-fit", label: "ICP-fit", value: "126", detail: "+16%", icon: <UserRoundCheck size={18} />, tone: "success" },
+  { id: "repeat-engagers", label: "Repeat", value: "74", detail: "+9%", icon: <RefreshCw size={18} />, tone: "info" },
+  { id: "warm-relationships", label: "Warm", value: "32", detail: "+14%", icon: <UsersRound size={18} />, tone: "accent" },
+  { id: "awaiting-response", label: "Waiting", value: "11", detail: "Follow-up", icon: <MessageSquareReply size={18} />, tone: "warning" },
+  { id: "founder-action", label: "Founder action", value: "5", detail: "Review", icon: <Target size={18} />, tone: "neutral" },
 ];
 
 const relationshipRows: RelationshipProfile[] = [
@@ -1471,7 +2057,7 @@ function EngagementAccounts({ onToast }: { onToast: ToastHandler }) {
           <h2>Social Connections</h2>
           <span>Manage the accounts this agent can read from and engage through.</span>
         </div>
-        <button className="primary-button" type="button" onClick={() => onToast("Connection queued", "Invite email ready")}>
+        <button className="primary-button" type="button" onClick={() => onToast("Connection queued", "Invite link ready")}>
           <Plus size={16} />
           Add account
         </button>
@@ -1493,8 +2079,8 @@ function EngagementAccounts({ onToast }: { onToast: ToastHandler }) {
               <strong>{account.status}</strong>
               <span>{account.detail}</span>
             </div>
-            <button className="link-button" type="button" onClick={() => onToast("Email prepared", account.name)}>
-              Send connection email
+            <button className="link-button" type="button" onClick={() => onToast("Invite link copied", account.name)}>
+              Copy connection link
             </button>
             <button className="primary-button slim" type="button" onClick={() => onToast("Connect flow opened", account.name, "info")}>
               Connect
@@ -1587,7 +2173,7 @@ function FounderLedPage({ onToast }: { onToast: ToastHandler }) {
       id: "generate-drafts",
       number: 2,
       title: "Create drafts",
-      items: ["LinkedIn post", "X thread", "Reddit response", "SEO/GEO brief"],
+      items: ["LinkedIn post", "X thread", "Comment reply", "Relationship note"],
       status: "Ready",
       count: `${flow.drafts} drafts`,
     },
@@ -1603,7 +2189,7 @@ function FounderLedPage({ onToast }: { onToast: ToastHandler }) {
       id: "publish",
       number: 4,
       title: "Publish",
-      items: ["LinkedIn", "X", "Reddit", "Blog/CMS"],
+      items: ["LinkedIn", "X", "Schedule", "Track reactions"],
       status: "Queued",
       count: `${flow.published} live`,
     },
@@ -1644,7 +2230,7 @@ function FounderLedPage({ onToast }: { onToast: ToastHandler }) {
             <span>Qualified signals enter flow</span>
           </div>
           <div className="flow-source-row">
-            {["Slack", "Calls", "LinkedIn", "Website"].map((source) => (
+            {["Slack", "Telegram", "LinkedIn", "X"].map((source) => (
               <SourceBadge key={source} source={source} />
             ))}
           </div>
@@ -2168,8 +2754,8 @@ function QueuePage({ onToast }: { onToast: ToastHandler }) {
                 <CheckCircle2 size={18} />
               </div>
               <div>
-                <strong>{readyCount} items ready for review</strong>
-                <span>Review before the next publish window.</span>
+                <strong>{readyCount} ready</strong>
+                <span>Next publish window</span>
               </div>
             </div>
             <button className="secondary-button slim" type="button" onClick={() => setActiveMode("Calendar")}>
@@ -2197,7 +2783,7 @@ function QueuePage({ onToast }: { onToast: ToastHandler }) {
                 </nav>
                 <div className="queue-table-meta">
                   <StatusBadge status={activeTab} />
-                  <span>{rowsByTab[activeTab].length} items</span>
+                  <span>{rowsByTab[activeTab].length}</span>
                 </div>
               </div>
 
@@ -2397,9 +2983,9 @@ function QueueCalendarView({
     <section className="surface queue-calendar-card" aria-label="Content calendar">
       <div className="queue-calendar-header">
         <div>
-          <p className="eyebrow">Content Calendar</p>
+          <p className="eyebrow">Calendar</p>
           <h2>Publishing calendar</h2>
-          <span>Scheduled from queue dates.</span>
+          <span>Scheduled posts</span>
         </div>
         <button className="secondary-button slim" type="button" onClick={onBack}>
           Back to queue
@@ -2448,7 +3034,7 @@ function QueueCalendarView({
         <div className="queue-unscheduled-strip">
           <div>
             <p className="eyebrow">Unscheduled</p>
-            <strong>{unscheduled.length} drafts need dates</strong>
+            <strong>{unscheduled.length} need dates</strong>
           </div>
           <div className="queue-unscheduled-list">
             {unscheduled.map(({ item }) => (
@@ -2492,14 +3078,14 @@ function QueuePreviewPanel({ item, onToast }: { item: QueueItem; onToast: ToastH
         ) : null}
 
         <section className="queue-preview-card">
-          <p className="eyebrow">{isReply ? "Suggested Reply" : "Draft"}</p>
+          <p className="eyebrow">{isReply ? "Reply" : "Draft"}</p>
           <p className="queue-preview-body">{item.body}</p>
         </section>
 
         <div className="queue-preview-meta-grid">
-          <span>Context</span>
+          <span>Source</span>
           <strong>{item.sourceContext}</strong>
-          <span>ICP fit</span>
+          <span>Fit</span>
           <strong>{item.icpFit}</strong>
           <span>Segment</span>
           <strong>{item.segment}</strong>
@@ -2537,7 +3123,7 @@ function QueuePreviewPanel({ item, onToast }: { item: QueueItem; onToast: ToastH
 type FileOwnership = "Mine" | "Shared with me";
 type FileKind = "Image" | "Video" | "Document" | "Data";
 type FileKindFilter = "All" | "Images" | "Videos" | "Documents" | "Data";
-type FileStatusFilter = "All statuses" | "Approved" | "Needs metadata" | "In review";
+type FileStatusFilter = "All statuses" | "Approved" | "Needs info" | "In review";
 
 type FileAsset = {
   id: string;
@@ -2545,7 +3131,7 @@ type FileAsset = {
   kind: FileKind;
   owner: FileOwnership;
   source: string;
-  status: "Approved" | "Needs metadata" | "In review";
+  status: "Approved" | "Needs info" | "In review";
   usage: "Unused" | "Used recently" | "Used before";
   updated: string;
   size: string;
@@ -2559,7 +3145,7 @@ type FileAsset = {
 
 const fileOwnershipTabs = ["Mine", "Shared with me"] as const;
 const fileKindTabs: FileKindFilter[] = ["All", "Images", "Videos", "Documents", "Data"];
-const fileStatusFilters: FileStatusFilter[] = ["All statuses", "Approved", "Needs metadata", "In review"];
+const fileStatusFilters: FileStatusFilter[] = ["All statuses", "Approved", "Needs info", "In review"];
 
 const fileKindByFilter: Record<Exclude<FileKindFilter, "All">, FileKind> = {
   Images: "Image",
@@ -2580,41 +3166,41 @@ const demoFileAssets: FileAsset[] = [
     updated: "Today 10:24 AM",
     size: "1.8 MB",
     extension: "PNG",
-    description: "Proof screenshot for posts that need customer trust and specific outcomes.",
+    description: "Proof screenshot for trust-led posts.",
     tags: ["Customer Proof", "LinkedIn", "Trust"],
-    usedIn: "Ready for proof-led posts",
-    platformFit: "LinkedIn high, X medium",
+    usedIn: "Proof posts",
+    platformFit: "LinkedIn high",
   },
   {
     id: "asset-founder-photo",
     name: "Founder photo",
     kind: "Image",
     owner: "Mine",
-    source: "Google Meet",
+    source: "Slack",
     status: "Approved",
     usage: "Used recently",
     updated: "Yesterday 4:12 PM",
     size: "3.2 MB",
     extension: "JPG",
-    description: "Founder-facing image for lessons, hiring brand, and operating rhythm posts.",
+    description: "Founder image for lessons and hiring posts.",
     tags: ["Founder Trust", "Hiring", "Profile"],
-    usedIn: "Why founder content stalls",
-    platformFit: "LinkedIn high, X low",
+    usedIn: "Founder content",
+    platformFit: "LinkedIn high",
   },
   {
     id: "asset-product-carousel",
     name: "Product education carousel",
     kind: "Image",
     owner: "Mine",
-    source: "Notion",
-    status: "Needs metadata",
+    source: "Telegram",
+    status: "Needs info",
     usage: "Unused",
     updated: "Jun 10 6:40 PM",
     size: "8.4 MB",
     extension: "PDF",
-    description: "Carousel export explaining the agent workflow from source ingestion to publishing review.",
+    description: "Carousel on the agent workflow.",
     tags: ["Product Education", "Carousel", "Review"],
-    usedIn: "Waiting for metadata",
+    usedIn: "Needs info",
     platformFit: "LinkedIn high",
   },
   {
@@ -2622,16 +3208,16 @@ const demoFileAssets: FileAsset[] = [
     name: "Customer testimonial video",
     kind: "Video",
     owner: "Shared with me",
-    source: "Google Meet",
+    source: "Slack",
     status: "Approved",
     usage: "Unused",
     updated: "Jun 9 1:18 PM",
     size: "42 MB",
     extension: "MP4",
     duration: "01:18",
-    description: "Short proof clip for founder-led posts and landing page repurposing.",
+    description: "Short customer proof clip.",
     tags: ["Video", "Customer Proof", "Proof"],
-    usedIn: "Ready for proof-led founder posts",
+    usedIn: "Proof posts",
     platformFit: "LinkedIn high",
   },
   {
@@ -2645,25 +3231,25 @@ const demoFileAssets: FileAsset[] = [
     updated: "Jun 8 11:05 AM",
     size: "960 KB",
     extension: "PNG",
-    description: "Audience language capture from an X thread about generic AI content.",
+    description: "Audience language from X.",
     tags: ["UGC", "Market Signal", "X"],
-    usedIn: "X thread from launch note",
-    platformFit: "X high, LinkedIn medium",
+    usedIn: "X thread",
+    platformFit: "X high",
   },
   {
     id: "asset-comparison-graphic",
     name: "Comparison graphic",
     kind: "Image",
     owner: "Mine",
-    source: "Website",
+    source: "LinkedIn",
     status: "Approved",
     usage: "Used before",
     updated: "Jun 7 3:32 PM",
     size: "2.6 MB",
     extension: "SVG",
-    description: "Visual comparing scattered tools with a single agent control center.",
-    tags: ["Category POV", "Graphic", "Website"],
-    usedIn: "Source ingestion playbook",
+    description: "Single control-center graphic.",
+    tags: ["Category POV", "Graphic", "LinkedIn"],
+    usedIn: "Performance post",
     platformFit: "LinkedIn medium, X medium",
   },
   {
@@ -2671,32 +3257,32 @@ const demoFileAssets: FileAsset[] = [
     name: "Customer call clips pack",
     kind: "Video",
     owner: "Mine",
-    source: "Google Meet",
+    source: "Telegram",
     status: "In review",
     usage: "Unused",
     updated: "Jun 6 5:46 PM",
     size: "128 MB",
     extension: "MP4",
     duration: "08:42",
-    description: "Three clips where customers explain review bottlenecks and generic output pain.",
-    tags: ["Calls", "Pain", "Review"],
-    usedIn: "LinkedIn post from customer call",
-    platformFit: "Internal source, proof snippets",
+    description: "Customer clips on review bottlenecks.",
+    tags: ["Voice Notes", "Pain", "Review"],
+    usedIn: "Customer-call post",
+    platformFit: "Proof snippets",
   },
   {
     id: "asset-launch-brief",
     name: "Launch repurposing brief",
     kind: "Document",
     owner: "Mine",
-    source: "Notion",
+    source: "Telegram",
     status: "Approved",
     usage: "Used recently",
     updated: "Jun 6 9:14 AM",
     size: "420 KB",
     extension: "DOC",
-    description: "Source brief used to produce launch posts, replies, and email variants.",
+    description: "Brief for launch posts and replies.",
     tags: ["Launch", "Brief", "Repurpose"],
-    usedIn: "Launch note teardown",
+    usedIn: "Launch teardown",
     platformFit: "All channels",
   },
   {
@@ -2704,16 +3290,16 @@ const demoFileAssets: FileAsset[] = [
     name: "ICP signal export",
     kind: "Data",
     owner: "Shared with me",
-    source: "CRM",
-    status: "Needs metadata",
+    source: "LinkedIn",
+    status: "Needs info",
     usage: "Unused",
     updated: "Jun 5 8:20 AM",
     size: "740 KB",
     extension: "CSV",
-    description: "Account and signal export for scoring warm relationships and reply priority.",
-    tags: ["CRM", "Signals", "Accounts"],
-    usedIn: "Not connected to a draft yet",
-    platformFit: "Agent scoring",
+    description: "Warm people and reply priority.",
+    tags: ["Relationships", "Signals", "Accounts"],
+    usedIn: "Unassigned",
+    platformFit: "Scoring",
   },
 ];
 
@@ -2742,7 +3328,7 @@ function FilesPage({ onToast }: { onToast: ToastHandler }) {
   const activeAsset = filteredAssets.find((asset) => asset.id === selectedAsset.id) ?? filteredAssets[0] ?? selectedAsset;
   const imageCount = demoFileAssets.filter((asset) => asset.kind === "Image").length;
   const videoCount = demoFileAssets.filter((asset) => asset.kind === "Video").length;
-  const needsMetadata = demoFileAssets.filter((asset) => asset.status === "Needs metadata").length;
+  const needsMetadata = demoFileAssets.filter((asset) => asset.status === "Needs info").length;
 
   return (
     <div className="page-stack files-page">
@@ -2809,9 +3395,41 @@ function FilesPage({ onToast }: { onToast: ToastHandler }) {
         </section>
       ) : null}
 
+      <section className="surface files-upload-strip" aria-label="Upload assets">
+        <div>
+          <p className="eyebrow">Add assets</p>
+          <h2>Upload assets</h2>
+          <span>Images, clips, proof.</span>
+        </div>
+        <div className="files-upload-actions">
+          <input
+            id="asset-local-upload"
+            className="visually-hidden"
+            type="file"
+            multiple
+            onChange={(event) => {
+              const count = event.currentTarget.files?.length ?? 0;
+              if (count) onToast("Upload ready", `${count} local file${count === 1 ? "" : "s"} selected`, "info");
+            }}
+          />
+          <label className="secondary-button" htmlFor="asset-local-upload">
+            <Upload size={15} />
+            Computer
+          </label>
+          <button className="secondary-button" type="button" onClick={() => onToast("Google Drive opened", "Choose assets to import", "info")}>
+            <FolderOpen size={15} />
+            Google Drive
+          </button>
+          <button className="secondary-button" type="button" onClick={() => onToast("Dropbox opened", "Choose assets to import", "info")}>
+            <FolderOpen size={15} />
+            Dropbox
+          </button>
+        </div>
+      </section>
+
       <section className="files-summary-grid" aria-label="Files summary">
         <article>
-          <span>Total files</span>
+          <span>Total</span>
           <strong>{demoFileAssets.length}</strong>
         </article>
         <article>
@@ -2823,7 +3441,7 @@ function FilesPage({ onToast }: { onToast: ToastHandler }) {
           <strong>{videoCount}</strong>
         </article>
         <article>
-          <span>Needs metadata</span>
+          <span>Needs info</span>
           <strong>{needsMetadata}</strong>
         </article>
       </section>
@@ -2834,7 +3452,7 @@ function FilesPage({ onToast }: { onToast: ToastHandler }) {
             <div>
               <p className="eyebrow">Assets</p>
               <h2>{ownership}</h2>
-              <span>{filteredAssets.length} files shown.</span>
+              <span>{filteredAssets.length} files</span>
             </div>
             <button className="secondary-button slim" type="button" onClick={() => onToast("Upload ready", "Asset upload opened", "info")}>
               <Upload size={15} />
@@ -2859,14 +3477,13 @@ function FilesPage({ onToast }: { onToast: ToastHandler }) {
                   <div className="file-asset-body">
                     <div>
                       <strong>{asset.name}</strong>
-                      <span>{asset.description}</span>
                     </div>
                     <div className="file-asset-meta">
                       <StatusBadge status={asset.status} />
                       <SourceBadge source={asset.source} />
                     </div>
                     <div className="file-tag-row">
-                      {asset.tags.slice(0, 3).map((tag) => (
+                      {asset.tags.slice(0, 2).map((tag) => (
                         <span key={tag}>{tag}</span>
                       ))}
                     </div>
@@ -2926,9 +3543,9 @@ function FileAssetDetail({ asset, onToast }: { asset: FileAsset; onToast: ToastH
         <strong>{asset.updated}</strong>
         <span>Size</span>
         <strong>{asset.size}</strong>
-        <span>Used in</span>
+          <span>Used</span>
         <strong>{asset.usedIn}</strong>
-        <span>Best channels</span>
+          <span>Channels</span>
         <strong>{asset.platformFit}</strong>
       </div>
 
@@ -2945,144 +3562,116 @@ function FileAssetDetail({ asset, onToast }: { asset: FileAsset; onToast: ToastH
         </button>
         <button className="primary-button" type="button" onClick={() => onToast("Draft generated", `${asset.name} attached`)}>
           <Plus size={15} />
-          Attach to draft
+            Attach
         </button>
       </div>
     </aside>
   );
 }
 
-function SourcesPage({ onSelectSource, onToast }: { onSelectSource: (source: DemoSource) => void; onToast: ToastHandler }) {
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
-  const [lookalikeOpen, setLookalikeOpen] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [launchingSignalId, setLaunchingSignalId] = useState<string | null>(null);
+function SourcesPage({ onToast }: { onSelectSource: (source: DemoSource) => void; onToast: ToastHandler }) {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [context, setContext] = useState({
+    name: "Jay Patil",
+    designation: "Founder",
+    companyName: "Helixar",
+    website: "https://helixar.ai",
+    companySummary:
+      "Helixar helps founder-led teams turn customer notes, Slack and Telegram notes, and social engagement into LinkedIn and X posts, replies, and relationship memory.",
+    productFocus: "LinkedIn posting, X posting, engagement tracking, and relationship building from reactions, comments, and replies.",
+    customNotes: "Prioritize useful founder-led content. Ask before high-risk replies, strong claims, or anything that needs founder approval.",
+    voiceQuestionOne: "People should understand that Helixar keeps context attached to every post and reply, instead of generating generic social copy.",
+    voiceQuestionTwo: "Avoid guaranteed growth claims, fake urgency, and generic AI productivity language.",
+    voiceQuestionThree: "Ask for review before publishing quote posts, replying to important prospects, or making product claims.",
+  });
 
-  const openImport = () => {
-    setDropdownOpen(false);
-    setImportOpen(true);
+  const updateContext = (key: keyof typeof context, value: string) => {
+    setContext((current) => ({ ...current, [key]: value }));
   };
 
-  const openLookalike = () => {
-    setDropdownOpen(false);
-    setLookalikeOpen(true);
-  };
-
-  const syncSource = () => {
-    setDropdownOpen(false);
-    setIsSyncing(true);
+  const refreshContext = () => {
+    setIsRefreshing(true);
     window.setTimeout(() => {
-      setIsSyncing(false);
-      onToast("Source connected", "Sources synced");
+      setIsRefreshing(false);
+      onToast("Context refreshed", "Website and onboarding context updated", "info");
     }, 850);
-  };
-
-  const launchSignal = (signalId: string) => {
-    setDropdownOpen(false);
-    setLaunchingSignalId(signalId);
-    window.setTimeout(() => {
-      setLaunchingSignalId(null);
-      onToast("Flow launched", "Signal discovery started");
-    }, 700);
   };
 
   return (
     <div className="page-stack sources-page">
       <section className="sources-page-header">
         <div>
-          <p className="eyebrow">Sources</p>
-          <h2>Sources</h2>
-          <span>Manage the data your agent uses.</span>
+          <p className="eyebrow">Context</p>
+          <h2>Context</h2>
+          <span>Edit what Helixar uses.</span>
         </div>
-        <div className="add-source-menu">
-          <button className="primary-button" type="button" onClick={() => setDropdownOpen((open) => !open)}>
-            <Plus size={16} />
-            Add source
+        <div className="source-context-actions">
+          <button className="secondary-button" type="button" onClick={refreshContext} disabled={isRefreshing}>
+            {isRefreshing ? <ButtonSpinner /> : <RefreshCw size={15} />}
+            {isRefreshing ? "Refreshing" : "Refresh"}
           </button>
-          {dropdownOpen ? (
-            <div className="add-source-dropdown">
-              <div>
-                <p>Automatic</p>
-                <button type="button" onClick={() => launchSignal("high-intent")}>High-intent signals</button>
-                <button type="button" onClick={openLookalike}>Warm lookalike</button>
-                <button type="button" onClick={syncSource}>Source sync</button>
-              </div>
-              <div>
-                <p>Manual</p>
-                <button type="button" onClick={openImport}>CSV file</button>
-                <button type="button" onClick={openImport}>Chrome extension</button>
-                <button type="button" onClick={openImport}>Paste LinkedIn URL</button>
-                <button type="button" onClick={openImport}>Manual ICP</button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="surface signal-discovery-card">
-        <div className="surface-header">
-          <div>
-            <p className="eyebrow">Discovery</p>
-            <h2>Signal discovery</h2>
-          </div>
-          <div className="signal-badge-row">
-            {demoSourceDiscovery.badges.map((badge) => (
-              <StatusBadge key={badge} status={badge} />
-            ))}
-          </div>
-        </div>
-
-        <div className="signal-stats-row">
-          <div>
-            <strong>{demoSourceDiscovery.stats.signalsFound}</strong>
-            <span>signals found</span>
-          </div>
-          <div>
-            <strong>{demoSourceDiscovery.stats.newThisWeek}</strong>
-            <span>new this week</span>
-          </div>
-        </div>
-
-        <div className="icp-chip-row">
-          {demoSourceDiscovery.icpChips.map((chip) => (
-            <span key={chip}>{chip}</span>
-          ))}
-        </div>
-
-        <div className="signal-list">
-          {demoSourceDiscovery.signals.map((signal) => (
-            <div className="signal-row" key={signal.id}>
-              <div>
-                <strong>{signal.name}</strong>
-                <span>{signal.warmIcpsFound} warm leads</span>
-              </div>
-              <StatusBadge status={signal.volume} />
-              <span>{signal.nextRun}</span>
-              <button className="secondary-button slim" type="button" onClick={() => launchSignal(signal.id)} disabled={launchingSignalId === signal.id}>
-                {launchingSignalId === signal.id ? "Launching" : "Launch now"}
-              </button>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="surface source-surface">
-        <div className="surface-header">
-          <div>
-            <p className="eyebrow">Connected</p>
-            <h2>Connected sources</h2>
-          </div>
-          <button className="secondary-button" type="button" onClick={syncSource} disabled={isSyncing}>
-            {isSyncing ? <ButtonSpinner /> : <RefreshCw size={15} />}
-            {isSyncing ? "Syncing" : "Sync"}
+          <button className="primary-button" type="button" onClick={() => onToast("Context saved", "Posting context updated")}>
+            <CheckCircle2 size={15} />
+            Save
           </button>
         </div>
-        <SourcesTable rows={demoSources} onSelectSource={onSelectSource} />
       </section>
 
-      <ImportSourceModal open={importOpen} onClose={() => setImportOpen(false)} onToast={onToast} />
-      <WarmLookalikeModal open={lookalikeOpen} onClose={() => setLookalikeOpen(false)} onToast={onToast} />
+      <section className="surface source-context-card">
+        <div className="source-context-grid">
+          <SettingsField label="Name" defaultValue={context.name} onChange={(value) => updateContext("name", value)} />
+          <SettingsField label="Designation" defaultValue={context.designation} onChange={(value) => updateContext("designation", value)} />
+          <SettingsField label="Company name" defaultValue={context.companyName} onChange={(value) => updateContext("companyName", value)} />
+          <SettingsField label="Website" defaultValue={context.website} onChange={(value) => updateContext("website", value)} />
+          <SettingsField
+            label="What the company does"
+            multiline
+            defaultValue={context.companySummary}
+            onChange={(value) => updateContext("companySummary", value)}
+          />
+          <SettingsField
+            label="Product or offer focus"
+            multiline
+            defaultValue={context.productFocus}
+            onChange={(value) => updateContext("productFocus", value)}
+          />
+          <SettingsField
+            label="Custom notes"
+            multiline
+            defaultValue={context.customNotes}
+            onChange={(value) => updateContext("customNotes", value)}
+          />
+        </div>
+      </section>
+
+      <section className="surface source-context-card">
+        <div className="surface-header">
+          <div>
+            <p className="eyebrow">Voice questions</p>
+            <h2>Answers from onboarding</h2>
+          </div>
+        </div>
+        <div className="source-question-grid">
+          <SettingsField
+            label="What should people understand after reading your posts?"
+            multiline
+            defaultValue={context.voiceQuestionOne}
+            onChange={(value) => updateContext("voiceQuestionOne", value)}
+          />
+          <SettingsField
+            label="Which topics, claims, or phrases should Helixar avoid?"
+            multiline
+            defaultValue={context.voiceQuestionTwo}
+            onChange={(value) => updateContext("voiceQuestionTwo", value)}
+          />
+          <SettingsField
+            label="When should the agent ask before posting or replying?"
+            multiline
+            defaultValue={context.voiceQuestionThree}
+            onChange={(value) => updateContext("voiceQuestionThree", value)}
+          />
+        </div>
+      </section>
     </div>
   );
 }
@@ -3490,23 +4079,12 @@ function SignalsPerformanceTable({ rows }: { rows: Array<{ id: string; signal: s
 }
 
 function SettingsPage({ onToast }: { onToast: ToastHandler }) {
-  const settingsTabs = [
-    "Workspace",
-    "Members",
-    "Channels",
-    "Sources",
-    "Security",
-    "Content Templates",
-    "Billing",
-    "API",
-    "MCP",
-    "Blocklist",
-  ] as const;
+  const settingsTabs = ["Account", "Channels", "Billing", "Preferences"] as const;
   type SettingsTab = (typeof settingsTabs)[number];
-  const [activeTab, setActiveTab] = useState<SettingsTab>("Workspace");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("Account");
 
   const saveSettings = () => {
-    onToast("Settings saved", "Workspace updated");
+    onToast("Settings saved", "Preferences updated");
   };
 
   return (
@@ -3538,63 +4116,39 @@ function SettingsPage({ onToast }: { onToast: ToastHandler }) {
         </nav>
 
         <div className="settings-tab-panel">
-          {activeTab === "Workspace" ? <WorkspaceSettings /> : null}
-          {activeTab === "Members" ? <MembersSettings onToast={onToast} /> : null}
+          {activeTab === "Account" ? <AccountSettings onToast={onToast} /> : null}
           {activeTab === "Channels" ? <ChannelsSettings /> : null}
-          {activeTab === "Sources" ? <SettingsSources /> : null}
-          {activeTab === "Security" ? <SecuritySettings /> : null}
-          {activeTab === "Content Templates" ? <ContentTemplatesSettings /> : null}
           {activeTab === "Billing" ? <BillingSettings /> : null}
-          {activeTab === "API" ? <ApiSettings /> : null}
-          {activeTab === "MCP" ? <McpSettings onToast={onToast} /> : null}
-          {activeTab === "Blocklist" ? <BlocklistSettings /> : null}
+          {activeTab === "Preferences" ? <PreferencesSettings /> : null}
         </div>
       </section>
     </div>
   );
 }
 
-function WorkspaceSettings() {
+function AccountSettings({ onToast }: { onToast: ToastHandler }) {
   return (
-    <section className="settings-card brand-brain-card">
+    <section className="settings-card">
       <div className="settings-card-header">
         <div>
-          <p className="eyebrow">Workspace</p>
-          <h3>Brand voice</h3>
+          <p className="eyebrow">Account</p>
+          <h3>Workspace account</h3>
         </div>
-        <StatusBadge status="Active" />
+        <StatusBadge status="Owner" />
       </div>
       <div className="settings-form-grid">
-        <SettingsField label="Company Name" defaultValue="Helixar" />
-        <SettingsField label="Website" defaultValue="https://helixar.ai" />
-        <SettingsField label="Industry" defaultValue="AI GTM infrastructure" />
-        <SettingsField label="Company Size" defaultValue="11-50" />
-        <SettingsField
-          label="Value Proposition"
-          multiline
-          defaultValue="Turn source signals into founder-led content, warm ICP tracking, and reply-ready workflows."
-        />
-        <SettingsField
-          label="Customer Pain Points"
-          multiline
-          defaultValue="Generic AI copy, scattered customer context, slow review cycles, missed warm ICP signals."
-        />
-        <SettingsField
-          label="Key Features"
-          multiline
-          defaultValue="Source ingestion, ICP intelligence, voice matching, content flows, publishing queue, reply management."
-        />
-        <SettingsField
-          label="Tone Rules"
-          multiline
-          defaultValue="Clear, direct, useful, founder-aware. Avoid hype and dense marketing language."
-        />
-        <SettingsField
-          label="Forbidden Claims"
-          multiline
-          defaultValue="No guaranteed pipeline, revenue lift, compliance promises, or unsupported model accuracy claims."
-        />
-        <SettingsField label="Competitors" multiline defaultValue="Jasper, Copy.ai, Clay, Common Room, Hootsuite, Buffer" />
+        <SettingsField label="Workspace name" defaultValue="Helixar" />
+        <SettingsField label="Owner name" defaultValue="Jay Patil" />
+        <SettingsField label="Owner email" defaultValue="jay@helixar.ai" />
+        <SettingsField label="Timezone" defaultValue="Asia/Kolkata" />
+      </div>
+      <div className="drawer-actions">
+        <button className="secondary-button" type="button" onClick={() => onToast("Invite copied", "Share this with your teammate", "info")}>
+          Copy invite link
+        </button>
+        <button className="primary-button" type="button" onClick={() => onToast("Settings saved", "Account updated")}>
+          Save account
+        </button>
       </div>
     </section>
   );
@@ -3604,15 +4158,21 @@ function SettingsField({
   label,
   defaultValue,
   multiline,
+  onChange,
 }: {
   label: string;
   defaultValue: string;
   multiline?: boolean;
+  onChange?: (value: string) => void;
 }) {
+  const sharedProps = onChange
+    ? { value: defaultValue, onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onChange(event.target.value) }
+    : { defaultValue };
+
   return (
     <label className={multiline ? "settings-field multiline" : "settings-field"}>
       <span>{label}</span>
-      {multiline ? <textarea defaultValue={defaultValue} /> : <input defaultValue={defaultValue} />}
+      {multiline ? <textarea {...sharedProps} /> : <input {...sharedProps} />}
     </label>
   );
 }
@@ -3680,14 +4240,14 @@ function SettingsRoleBadge({ role }: { role: string }) {
 function ChannelsSettings() {
   const channels = [
     { id: "channel-linkedin", channel: "LinkedIn", status: "Connected", limits: "24 posts/mo" },
-    { id: "channel-x", channel: "X", status: "Connected", limits: "60 threads/mo" },
-    { id: "channel-reddit", channel: "Reddit", status: "Review", limits: "18 replies/mo" },
-    { id: "channel-cms", channel: "Website/CMS", status: "Connected", limits: "12 pages/mo" },
+    { id: "channel-x", channel: "X", status: "Connected", limits: "60 posts/mo" },
+    { id: "channel-slack", channel: "Slack", status: "Connected", limits: "Context source" },
+    { id: "channel-telegram", channel: "Telegram", status: "Connected", limits: "Context source" },
   ];
 
   return (
     <SettingsTableCard
-      eyebrow="Publishing"
+      eyebrow="Channels"
       title="Connected accounts"
       rows={channels}
       columns={[
@@ -3708,13 +4268,42 @@ function ChannelsSettings() {
   );
 }
 
+function PreferencesSettings() {
+  return (
+    <section className="settings-card">
+      <div className="settings-card-header">
+        <div>
+          <p className="eyebrow">Preferences</p>
+          <h3>Review and posting defaults</h3>
+        </div>
+        <StatusBadge status="Review on" />
+      </div>
+      <div className="settings-form-grid">
+        <SettingsField label="Default review mode" defaultValue="Ask before posting" />
+        <SettingsField label="Default posting window" defaultValue="Weekdays, 10 AM - 6 PM" />
+        <SettingsField label="LinkedIn reply limit" defaultValue="25 comments/day" />
+        <SettingsField label="X reply limit" defaultValue="60 replies/day" />
+        <SettingsField
+          label="Notification preference"
+          multiline
+          defaultValue="Notify when a high-fit person reacts, comments, replies, or becomes a relationship card."
+        />
+        <SettingsField
+          label="Approval preference"
+          multiline
+          defaultValue="Auto-save drafts, but ask before publishing posts, quote posts, and important replies."
+        />
+      </div>
+    </section>
+  );
+}
+
 function SettingsSources() {
   const sources = [
     { id: "source-slack-settings", source: "Slack", status: "Synced", lastSynced: "4m ago" },
-    { id: "source-calls-settings", source: "Calls", status: "Synced", lastSynced: "11m ago" },
-    { id: "source-notion-settings", source: "Notion", status: "Queued", lastSynced: "5h ago" },
-    { id: "source-crm-settings", source: "CRM", status: "Synced", lastSynced: "9m ago" },
-    { id: "source-website-settings", source: "Website", status: "Synced", lastSynced: "2h ago" },
+    { id: "source-telegram-settings", source: "Telegram", status: "Synced", lastSynced: "11m ago" },
+    { id: "source-linkedin-settings", source: "LinkedIn", status: "Queued", lastSynced: "5h ago" },
+    { id: "source-x-settings", source: "X", status: "Synced", lastSynced: "9m ago" },
   ];
 
   return (
@@ -3768,8 +4357,8 @@ function ContentTemplatesSettings() {
   const templates = [
     { id: "template-founder-post", name: "Founder post", channel: "LinkedIn", status: "Active" },
     { id: "template-x-thread", name: "X thread", channel: "X", status: "Active" },
-    { id: "template-reddit-reply", name: "Reddit reply", channel: "Reddit", status: "Review" },
-    { id: "template-geo-brief", name: "SEO/GEO brief", channel: "Blog", status: "Active" },
+    { id: "template-linkedin-reply", name: "LinkedIn reply", channel: "LinkedIn", status: "Review" },
+    { id: "template-x-reply", name: "X reply", channel: "X", status: "Active" },
   ];
 
   return (
@@ -3797,20 +4386,23 @@ function ContentTemplatesSettings() {
 
 function BillingSettings() {
   const billingStats = [
-    { label: "Content credits", value: "8,420" },
-    { label: "Source connectors", value: "8" },
-    { label: "Seats", value: "12" },
-    { label: "Add-ons", value: "2" },
+    { label: "Posts generated", value: "146" },
+    { label: "Relationships tracked", value: "384" },
+    { label: "Seats", value: "3" },
+    { label: "Credits left", value: "8,420" },
   ];
 
   return (
     <section className="settings-card billing-card">
       <div className="settings-card-header">
         <div>
-          <p className="eyebrow">Plan</p>
-          <h3>Enterprise Pilot</h3>
+          <p className="eyebrow">Billing</p>
+          <h3>Starter plan</h3>
         </div>
-        <StatusBadge status="Active" />
+        <button className="primary-button" type="button">
+          <Rocket size={15} />
+          Upgrade
+        </button>
       </div>
       <div className="billing-stat-grid">
         {billingStats.map((stat) => (
@@ -3820,11 +4412,15 @@ function BillingSettings() {
           </div>
         ))}
       </div>
+      <div className="billing-upgrade-note">
+        <strong>Need more posting volume?</strong>
+        <span>Upgrade for more LinkedIn and X drafts, relationship tracking, and team seats.</span>
+      </div>
     </section>
   );
 }
 
-function ApiSettings() {
+function DeveloperAccessSettings() {
   const webhooks = [
     { id: "webhook-draft-ready", name: "draft.ready", status: "Active", target: "https://api.helixar.ai/hooks/drafts" },
     { id: "webhook-icp-warm", name: "icp.warm", status: "Active", target: "https://api.helixar.ai/hooks/icps" },
@@ -3836,8 +4432,8 @@ function ApiSettings() {
       <section className="settings-card">
         <div className="settings-card-header">
           <div>
-            <p className="eyebrow">API</p>
-            <h3>API key</h3>
+            <p className="eyebrow">Developer</p>
+            <h3>Access key</h3>
           </div>
           <StatusBadge status="Masked" />
         </div>
@@ -3862,20 +4458,20 @@ function ApiSettings() {
   );
 }
 
-function McpSettings({ onToast }: { onToast: ToastHandler }) {
+function DeveloperConnectionSettings({ onToast }: { onToast: ToastHandler }) {
   return (
-    <section className="settings-card mcp-card">
+    <section className="settings-card developer-connection-card">
       <div className="settings-card-header">
         <div>
-          <p className="eyebrow">MCP</p>
+          <p className="eyebrow">Developer</p>
           <h3>Developer connection</h3>
         </div>
         <StatusBadge status="Connected" />
       </div>
-      <div className="mcp-connection-grid">
+      <div className="developer-connection-grid">
         <div>
           <span>Server</span>
-          <strong>mcp.helixar.ai</strong>
+          <strong>connect.helixar.ai</strong>
         </div>
         <div>
           <span>Tools</span>
@@ -3888,15 +4484,15 @@ function McpSettings({ onToast }: { onToast: ToastHandler }) {
       </div>
       <div className="drawer-actions">
         <button className="secondary-button" type="button" onClick={() => onToast("Settings saved", "Token rotated")}>Rotate token</button>
-        <button className="primary-button" type="button" onClick={() => onToast("Source connected", "MCP reconnected")}>Reconnect</button>
+        <button className="primary-button" type="button" onClick={() => onToast("Connection ready", "Developer connection refreshed")}>Reconnect</button>
       </div>
     </section>
   );
 }
 
-function BlocklistSettings() {
+function SafetyListSettings() {
   const groups = [
-    { title: "Companies", items: ["LegacyCRM", "Acme Analytics", "Northstar Labs"] },
+    { title: "Companies", items: ["Legacy Systems", "Acme Analytics", "Northstar Labs"] },
     { title: "Topics", items: ["Guaranteed revenue", "Medical advice", "Political claims"] },
     { title: "Words", items: ["revolutionary", "overnight", "risk-free"] },
     { title: "People", items: ["Former contractors", "Press contacts"] },
@@ -3908,7 +4504,7 @@ function BlocklistSettings() {
       <div className="settings-card-header">
         <div>
           <p className="eyebrow">Safety</p>
-          <h3>Blocklist</h3>
+          <h3>Safety list</h3>
         </div>
         <button className="secondary-button slim" type="button">
           <Plus size={14} />
@@ -4132,9 +4728,7 @@ function GenerateModal({ open, onClose, onToast }: { open: boolean; onClose: () 
             Channel
             <select defaultValue="LinkedIn">
               <option>LinkedIn</option>
-              <option>Email</option>
-              <option>Blog</option>
-              <option>Reddit</option>
+              <option>X</option>
             </select>
           </label>
           <label>
@@ -4146,7 +4740,7 @@ function GenerateModal({ open, onClose, onToast }: { open: boolean; onClose: () 
             </select>
           </label>
         </div>
-        <FlowStepCard step="Draft" title="3 assets" detail="Thread, email, reply." status="Ready" icon={<Sparkles size={16} />} />
+        <FlowStepCard step="Draft" title="3 assets" detail="LinkedIn post, X post, and reply." status="Ready" icon={<Sparkles size={16} />} />
         <div className="drawer-actions">
           <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
           <button className="primary-button" type="button" onClick={createDraft} disabled={isGenerating}>

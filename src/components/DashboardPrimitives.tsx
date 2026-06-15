@@ -4,11 +4,9 @@ import {
   Check,
   ChevronRight,
   Circle,
-  DatabaseZap,
   FileText,
   Inbox,
   Linkedin,
-  Mail,
   MessageSquareText,
   RadioTower,
   Search,
@@ -30,25 +28,19 @@ const toneClass: Record<Tone, string> = {
 
 const sourceIcons: Record<string, ReactNode> = {
   LinkedIn: <Linkedin size={13} aria-hidden />,
-  Email: <Mail size={13} aria-hidden />,
   Notes: <FileText size={13} aria-hidden />,
   Web: <Search size={13} aria-hidden />,
   Website: <Search size={13} aria-hidden />,
-  CRM: <DatabaseZap size={13} aria-hidden />,
   Slack: <MessageSquareText size={13} aria-hidden />,
-  Calls: <MessageSquareText size={13} aria-hidden />,
-  "Google Meet": <MessageSquareText size={13} aria-hidden />,
+  Telegram: <Send size={13} aria-hidden />,
   X: <RadioTower size={13} aria-hidden />,
-  Reddit: <MessageSquareText size={13} aria-hidden />,
-  Notion: <FileText size={13} aria-hidden />,
 };
 
 const channelIcons: Record<string, ReactNode> = {
   LinkedIn: <Linkedin size={13} aria-hidden />,
-  Email: <Mail size={13} aria-hidden />,
   X: <RadioTower size={13} aria-hidden />,
-  Blog: <FileText size={13} aria-hidden />,
-  Reddit: <MessageSquareText size={13} aria-hidden />,
+  Slack: <MessageSquareText size={13} aria-hidden />,
+  Telegram: <Send size={13} aria-hidden />,
 };
 
 export function MetricCard({
