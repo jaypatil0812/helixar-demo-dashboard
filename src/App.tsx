@@ -97,19 +97,175 @@ const routeMeta: Record<string, { title: string; subtitle?: string }> = {
   "/settings": { title: "Settings", subtitle: "Account and billing." },
 };
 
-type OnboardingScreen = "start" | "connect" | "review" | "screening" | "channels";
+type OnboardingGoal = "sales" | "brand" | "consistency" | "agency";
 
-type OnboardingProfile = {
-  name: string;
-  companyName: string;
-  website: string;
-  designation: string;
-  companySummary: string;
-  productFocus: string;
-  customNotes: string;
+type VoicePreset =
+  | "sharp-founder"
+  | "professional-operator"
+  | "educational-expert"
+  | "direct-sales-led"
+  | "custom";
+
+type CommandChannel = "slack" | "telegram" | null;
+
+type OnboardingTarget = {
+  id: string;
+  value: string;
+  type: "linkedin" | "x" | "domain" | "name" | "unknown";
 };
 
-const onboardingSequence: OnboardingScreen[] = ["connect", "review", "screening", "channels"];
+type OnboardingBenchmark = {
+  id: string;
+  value: string;
+  type: "linkedin" | "x" | "brand" | "name" | "unknown";
+};
+
+type FirstQueuePost = {
+  id: string;
+  platform: "LinkedIn" | "X";
+  hook: string;
+  preview: string;
+  whyCreated: string;
+  targetAudience: string;
+  contentPillar: string;
+  sourceSignal: string;
+  status: "Needs approval" | "Approved" | "Edited" | "Regenerated";
+  publishState: "Approval only" | "Ready to schedule" | "Needs publishing connection";
+};
+
+type OnboardingState = {
+  started: boolean;
+  completed: boolean;
+  currentStep: number;
+  goal: OnboardingGoal | null;
+  website: string;
+  companyDescription: string;
+  targetCustomer: string;
+  mainOffer: string;
+  voicePreset: VoicePreset | null;
+  voiceSample: string;
+  bannedWords: string;
+  targets: OnboardingTarget[];
+  benchmarks: OnboardingBenchmark[];
+  topics: string[];
+  commandChannel: CommandChannel;
+  connectedChannels: {
+    slack: boolean;
+    telegram: boolean;
+    linkedin: boolean;
+    x: boolean;
+  };
+  firstQueueGenerated: boolean;
+  firstQueueSent: boolean;
+  firstPostApproved: boolean;
+  firstQueue: FirstQueuePost[];
+};
+
+type ActivationEvent = {
+  eventName: string;
+  timestamp: number;
+  payload?: Record<string, unknown>;
+};
+
+const onboardingStorageKey = "helixar:onboarding:v1";
+const firstQueueStorageKey = "helixar:firstQueue:v1";
+const activationStorageKey = "helixar:activation:v1";
+
+const onboardingSteps = ["Welcome", "Goal", "Company", "Voice", "Audience", "Channels", "First queue"];
+const onboardingPhases = ["Setup", "Context", "Channels", "Queue"];
+
+const defaultOnboardingState: OnboardingState = {
+  started: false,
+  completed: false,
+  currentStep: 0,
+  goal: null,
+  website: "",
+  companyDescription: "",
+  targetCustomer: "",
+  mainOffer: "",
+  voicePreset: null,
+  voiceSample: "",
+  bannedWords: "",
+  targets: [],
+  benchmarks: [],
+  topics: [],
+  commandChannel: null,
+  connectedChannels: {
+    slack: false,
+    telegram: false,
+    linkedin: false,
+    x: false,
+  },
+  firstQueueGenerated: false,
+  firstQueueSent: false,
+  firstPostApproved: false,
+  firstQueue: [],
+};
+
+const goalOptions: {
+  id: OnboardingGoal;
+  title: string;
+  outcome: string;
+  preview: string;
+  primary?: boolean;
+  disabled?: boolean;
+}[] = [
+  {
+    id: "sales",
+    title: "Sales / demand generation",
+    outcome: "Warm up target accounts and create qualified conversations.",
+    preview: "Market warm-up dashboard",
+    primary: true,
+  },
+  {
+    id: "brand",
+    title: "Personal brand / audience growth",
+    outcome: "Build authority and stay visible consistently.",
+    preview: "Authority growth dashboard",
+    primary: true,
+  },
+  {
+    id: "consistency",
+    title: "Consistent posting / engagement",
+    outcome: "Keep content and reply opportunities moving without manual effort.",
+    preview: "Market presence dashboard",
+  },
+  {
+    id: "agency",
+    title: "Agency / client delivery",
+    outcome: "Manage content workflows for multiple clients.",
+    preview: "Client delivery dashboard - later",
+    disabled: true,
+  },
+];
+
+const voicePresetOptions: { id: VoicePreset; title: string; preview: string }[] = [
+  {
+    id: "sharp-founder",
+    title: "Sharp founder voice",
+    preview: "Clear POV, direct claims, practical stakes.",
+  },
+  {
+    id: "professional-operator",
+    title: "Professional operator",
+    preview: "Calm, structured, useful for teams.",
+  },
+  {
+    id: "educational-expert",
+    title: "Educational expert",
+    preview: "Explains patterns and teaches without fluff.",
+  },
+  {
+    id: "direct-sales-led",
+    title: "Direct sales-led",
+    preview: "Buyer pain, outcomes, and next steps.",
+  },
+  {
+    id: "custom",
+    title: "Custom",
+    preview: "Use your sample and avoid-list more heavily.",
+  },
+];
 
 type ToastKind = "success" | "info";
 
@@ -121,6 +277,317 @@ type DemoToast = {
 };
 
 type ToastHandler = (title: string, detail?: string, kind?: ToastKind) => void;
+
+function readJsonFromStorage<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+
+  try {
+    const stored = window.localStorage.getItem(key);
+    return stored ? (JSON.parse(stored) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function loadActivationEvents(): ActivationEvent[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const stored = window.localStorage.getItem(activationStorageKey);
+    return stored ? (JSON.parse(stored) as ActivationEvent[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function recordActivationEvent(eventName: string, payload: Record<string, unknown> = {}) {
+  if (typeof window === "undefined") return;
+
+  const timestamp = Date.now();
+  const events = loadActivationEvents();
+  const startedAt = events.find((event) => event.eventName === "onboarding_started")?.timestamp;
+  const timingPayload =
+    startedAt && eventName === "first_queue_generated"
+      ? { ...payload, time_to_first_queue_generated: timestamp - startedAt }
+      : startedAt && eventName === "first_post_approved"
+        ? { ...payload, time_to_first_post_approved: timestamp - startedAt }
+        : payload;
+
+  window.localStorage.setItem(
+    activationStorageKey,
+    JSON.stringify([...events, { eventName, timestamp, payload: timingPayload }]),
+  );
+}
+
+function loadOnboardingState(): OnboardingState {
+  const stored = readJsonFromStorage<Partial<OnboardingState>>(onboardingStorageKey, {});
+  const firstQueue = readJsonFromStorage<FirstQueuePost[]>(firstQueueStorageKey, []);
+
+  return {
+    ...defaultOnboardingState,
+    ...stored,
+    connectedChannels: {
+      ...defaultOnboardingState.connectedChannels,
+      ...stored.connectedChannels,
+    },
+    targets: stored.targets ?? [],
+    benchmarks: stored.benchmarks ?? [],
+    topics: stored.topics ?? [],
+    firstQueue: stored.firstQueue?.length ? stored.firstQueue : firstQueue,
+  };
+}
+
+function saveOnboardingState(state: OnboardingState) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem(onboardingStorageKey, JSON.stringify(state));
+  window.localStorage.setItem(firstQueueStorageKey, JSON.stringify(state.firstQueue));
+}
+
+function resetOnboardingState() {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.removeItem(onboardingStorageKey);
+  window.localStorage.removeItem(firstQueueStorageKey);
+  window.localStorage.removeItem(activationStorageKey);
+}
+
+function inferEntryType(value: string): OnboardingTarget["type"] {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("linkedin.com")) return "linkedin";
+  if (normalized.includes("x.com") || normalized.includes("twitter.com")) return "x";
+  if (normalized.includes(".") && !normalized.includes(" ")) return "domain";
+  if (value.trim()) return "name";
+  return "unknown";
+}
+
+function inferBenchmarkType(value: string): OnboardingBenchmark["type"] {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("linkedin.com")) return "linkedin";
+  if (normalized.includes("x.com") || normalized.includes("twitter.com")) return "x";
+  if (normalized.includes(".") && !normalized.includes(" ")) return "brand";
+  if (value.trim()) return "name";
+  return "unknown";
+}
+
+function getGoalLabel(goal: OnboardingGoal | null) {
+  return goalOptions.find((option) => option.id === goal)?.title ?? "Not selected";
+}
+
+function getVoicePresetLabel(voicePreset: VoicePreset | null) {
+  return voicePresetOptions.find((option) => option.id === voicePreset)?.title ?? "Not selected";
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sanitizeDraftText(text: string, bannedWords: string) {
+  const words = bannedWords
+    .split(",")
+    .map((word) => word.trim())
+    .filter(Boolean);
+
+  return words.reduce((draft, word) => draft.replace(new RegExp(escapeRegExp(word), "gi"), "practical"), text);
+}
+
+function getVoiceOpening(state: OnboardingState) {
+  if (state.voicePreset === "professional-operator") return "The teams that win are not louder. They are more consistent.";
+  if (state.voicePreset === "educational-expert") return "A useful content system starts with signals, not blank pages.";
+  if (state.voicePreset === "direct-sales-led") return "Your buyers are already telling you what they care about.";
+  if (state.voicePreset === "custom") return "The best posts sound like the person who actually does the work.";
+  return "Most teams do not have a content problem. They have a signal-to-execution problem.";
+}
+
+function getFirstQueueVariants(state: OnboardingState): FirstQueuePost[] {
+  const targetAudience = state.targetCustomer || "your target customers";
+  const offer = state.mainOffer || "turn market signals into content people can approve and publish";
+  const companyContext = state.companyDescription || state.website || "your company context";
+  const publishingConnected = state.connectedChannels.linkedin || state.connectedChannels.x;
+  const sourceSignal = state.goal === "brand" ? "Company context + benchmark patterns" : "Company context + selected goal";
+
+  const salesPosts: FirstQueuePost[] = [
+    {
+      id: "first-post-1",
+      platform: "LinkedIn",
+      hook: "Most teams do not have a demand problem. They have a follow-through problem.",
+      preview: `${companyContext} becomes more useful when every customer signal turns into a reviewed post, reply, or account touch. That is where ${offer} matters.`,
+      whyCreated: "Your audience cares about sales-relevant conversations and workflow gaps.",
+      targetAudience,
+      contentPillar: "Market execution systems",
+      sourceSignal,
+      status: "Needs approval",
+      publishState: publishingConnected ? "Ready to schedule" : "Needs publishing connection",
+    },
+    {
+      id: "first-post-2",
+      platform: "X",
+      hook: "A warm lead usually starts before the sales call.",
+      preview: `It starts when someone reacts to a useful post, asks a sharp question, or shows up around the same problem twice. Track the signal. Draft the follow-up. Ask before anything goes live.`,
+      whyCreated: "Sales mode should turn public engagement into qualified conversation starters.",
+      targetAudience,
+      contentPillar: "Buyer conversations",
+      sourceSignal: "Goal selection + target customer",
+      status: "Needs approval",
+      publishState: state.connectedChannels.x ? "Ready to schedule" : "Needs publishing connection",
+    },
+    {
+      id: "first-post-3",
+      platform: "LinkedIn",
+      hook: "The best market signal is often hiding inside the work your team already did.",
+      preview: `Customer notes, Slack updates, founder opinions, and repeated questions can become posts that sound specific because they came from real work.`,
+      whyCreated: "Your setup points to source-driven content, not generic writing prompts.",
+      targetAudience,
+      contentPillar: "Content from real signals",
+      sourceSignal: "Company context + command channel",
+      status: "Needs approval",
+      publishState: state.connectedChannels.linkedin ? "Ready to schedule" : "Needs publishing connection",
+    },
+  ];
+
+  const brandPosts: FirstQueuePost[] = [
+    {
+      id: "first-post-1",
+      platform: "LinkedIn",
+      hook: "Authority is built by repeating the right idea before the market is ready.",
+      preview: `${offer} is not just a product message. It is a point of view ${targetAudience} can recognize, remember, and trust over time.`,
+      whyCreated: "Brand mode should create a founder POV that can compound.",
+      targetAudience,
+      contentPillar: "Founder point of view",
+      sourceSignal,
+      status: "Needs approval",
+      publishState: state.connectedChannels.linkedin ? "Ready to schedule" : "Needs publishing connection",
+    },
+    {
+      id: "first-post-2",
+      platform: "X",
+      hook: "The market remembers useful repetition.",
+      preview: `One sharp idea, shown through customer pain, lessons, examples, and replies, can do more than ten disconnected posts.`,
+      whyCreated: "Your goal is audience growth through consistent topic ownership.",
+      targetAudience,
+      contentPillar: "Topic ownership",
+      sourceSignal: "Goal selection + voice preset",
+      status: "Needs approval",
+      publishState: state.connectedChannels.x ? "Ready to schedule" : "Needs publishing connection",
+    },
+    {
+      id: "first-post-3",
+      platform: "LinkedIn",
+      hook: getVoiceOpening(state),
+      preview: `The strongest content systems start with what the founder already sees: buyer hesitation, workflow pain, proof, and small lessons from the field.`,
+      whyCreated: "This turns your voice calibration into a post format.",
+      targetAudience,
+      contentPillar: "Founder lessons",
+      sourceSignal: "Voice preset + company context",
+      status: "Needs approval",
+      publishState: state.connectedChannels.linkedin ? "Ready to schedule" : "Needs publishing connection",
+    },
+  ];
+
+  const consistencyPosts: FirstQueuePost[] = [
+    {
+      id: "first-post-1",
+      platform: "LinkedIn",
+      hook: "Consistency gets easier when the system starts before the blank page.",
+      preview: `A useful post can come from one customer note, one team update, or one repeated objection. The workflow matters more than waiting for inspiration.`,
+      whyCreated: "Consistency mode should make publishing feel operational, not heroic.",
+      targetAudience,
+      contentPillar: "Always-on market presence",
+      sourceSignal,
+      status: "Needs approval",
+      publishState: state.connectedChannels.linkedin ? "Ready to schedule" : "Needs publishing connection",
+    },
+    {
+      id: "first-post-2",
+      platform: "X",
+      hook: "Your market presence should not depend on remembering to post.",
+      preview: `Capture signal. Draft from context. Review in Slack or Telegram. Publish only after approval.`,
+      whyCreated: "Your setup prioritizes regular posting with a review loop.",
+      targetAudience,
+      contentPillar: "Approval workflow",
+      sourceSignal: "Command channel + goal selection",
+      status: "Needs approval",
+      publishState: state.connectedChannels.x ? "Ready to schedule" : "Needs publishing connection",
+    },
+    {
+      id: "first-post-3",
+      platform: "LinkedIn",
+      hook: "A content calendar is only useful if it keeps learning from the market.",
+      preview: `${companyContext} should turn replies, reactions, and repeated questions into the next useful draft.`,
+      whyCreated: "You added consistency as the operating goal.",
+      targetAudience,
+      contentPillar: "Learning loop",
+      sourceSignal: "Company context + topics",
+      status: "Needs approval",
+      publishState: state.connectedChannels.linkedin ? "Ready to schedule" : "Needs publishing connection",
+    },
+  ];
+
+  const posts = state.goal === "brand" ? brandPosts : state.goal === "consistency" ? consistencyPosts : salesPosts;
+
+  return posts.map((post) => ({
+    ...post,
+    hook: sanitizeDraftText(post.hook, state.bannedWords),
+    preview: sanitizeDraftText(post.preview, state.bannedWords),
+  }));
+}
+
+function generateFirstQueue(state: OnboardingState) {
+  return getFirstQueueVariants(state);
+}
+
+function regenerateQueuePost(state: OnboardingState, post: FirstQueuePost): FirstQueuePost {
+  const targetAudience = state.targetCustomer || post.targetAudience;
+  const alternateHooks: Record<FirstQueuePost["platform"], string> = {
+    LinkedIn: "The useful content is already inside the customer conversation.",
+    X: "Turn the market signal into the next approved post.",
+  };
+
+  return {
+    ...post,
+    hook: sanitizeDraftText(alternateHooks[post.platform], state.bannedWords),
+    preview: sanitizeDraftText(
+      `For ${targetAudience}, the work is not more posting for the sake of posting. It is capturing a real signal, drafting from context, and approving before anything goes live.`,
+      state.bannedWords,
+    ),
+    whyCreated: "Regenerated from the same onboarding context with a tighter angle.",
+    status: "Regenerated",
+  };
+}
+
+function canContinueFromStep(step: number, state: OnboardingState) {
+  if (step === 0) return true;
+  if (step === 1) return Boolean(state.goal && state.goal !== "agency");
+  if (step === 2) return Boolean((state.website.trim() || state.companyDescription.trim()) && state.targetCustomer.trim());
+  if (step === 3) return Boolean(state.voicePreset);
+  if (step === 5) return Boolean(state.connectedChannels.slack || state.connectedChannels.telegram);
+  if (step === 6) return state.firstQueueGenerated && state.firstQueue.length > 0;
+  return true;
+}
+
+function getMissingRequirements(step: number, state: OnboardingState) {
+  if (step === 1) return "Choose Sales, Personal Brand, or Consistency to continue.";
+  if (step === 2) return "Add a website or company description, plus the target customer.";
+  if (step === 3) return "Choose a voice preset.";
+  if (step === 5) return "Choose Slack or Telegram to receive your first approval queue.";
+  if (step === 6) return "Generate the first queue before entering the dashboard.";
+  return "";
+}
+
+function getNextStep(step: number) {
+  return Math.min(step + 1, onboardingSteps.length - 1);
+}
+
+function getPreviousStep(step: number) {
+  return Math.max(step - 1, 0);
+}
+
+function getOnboardingPhase(activeStep: number) {
+  if (activeStep <= 1) return 0;
+  if (activeStep <= 4) return 1;
+  if (activeStep === 5) return 2;
+  return 3;
+}
 
 function normalizePath(pathname: string) {
   if (pathname === "/" || pathname === "" || pathname === "/onboarding") return "/onboarding";
@@ -200,127 +667,297 @@ export function App() {
 }
 
 function OnboardingPage({ onComplete }: { onComplete: () => void }) {
-  const [screen, setScreen] = useState<OnboardingScreen>("start");
-  const [linkedInState, setLinkedInState] = useState<"idle" | "connecting" | "connected">("idle");
-  const [xState, setXState] = useState<"idle" | "connecting" | "connected">("idle");
-  const [slackState, setSlackState] = useState<"idle" | "connecting" | "connected">("idle");
-  const [telegramState, setTelegramState] = useState<"idle" | "connecting" | "connected">("idle");
+  const [state, setState] = useState<OnboardingState>(() => loadOnboardingState());
   const [connectingAccount, setConnectingAccount] = useState<"LinkedIn" | "X" | "Slack" | "Telegram" | null>(null);
-  const [profile, setProfile] = useState<OnboardingProfile>({
-    name: "Jay Patil",
-    companyName: "Helixar",
-    website: "",
-    designation: "Founder",
-    companySummary:
-      "Helixar helps founder-led teams turn customer notes, market signals, and social activity into LinkedIn and X content that can be reviewed, scheduled, and posted from one workspace.",
-    productFocus: "LinkedIn posting, X posting, and engagement workflows for founder-led content.",
-    customNotes: "",
-  });
+  const [targetEntry, setTargetEntry] = useState("");
+  const [benchmarkEntry, setBenchmarkEntry] = useState("");
+  const [topicEntry, setTopicEntry] = useState("");
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState("");
+  const [toast, setToast] = useState<DemoToast | null>(null);
 
-  const currentIndex = onboardingSequence.indexOf(screen);
-  const goTo = (nextScreen: OnboardingScreen) => {
-    setScreen(nextScreen);
+  useEffect(() => {
+    saveOnboardingState(state);
+  }, [state]);
+
+  useEffect(() => {
+    if (state.currentStep === 6 && !state.firstQueueGenerated) {
+      const firstQueue = generateFirstQueue(state);
+      setState((current) => ({ ...current, firstQueue, firstQueueGenerated: true }));
+      recordActivationEvent("first_queue_generated", { goal: state.goal, postCount: firstQueue.length });
+    }
+  }, [state.currentStep, state.firstQueueGenerated, state.goal]);
+
+  const showOnboardingToast: ToastHandler = (title, detail, kind = "success") => {
+    const id = Date.now();
+    setToast({ id, title, detail, kind });
+    window.setTimeout(() => {
+      setToast((current) => (current?.id === id ? null : current));
+    }, 2600);
+  };
+
+  const updateState = (patch: Partial<OnboardingState>) => {
+    setState((current) => ({ ...current, ...patch }));
+  };
+
+  const startSetup = () => {
+    const nextState = { ...state, started: true, currentStep: 1 };
+    setState(nextState);
+    saveOnboardingState(nextState);
+    recordActivationEvent("onboarding_started");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-  const goNext = () => {
-    const next = onboardingSequence[Math.min(currentIndex + 1, onboardingSequence.length - 1)];
-    if (screen === "channels") {
-      onComplete();
-      return;
-    }
-    goTo(next);
-  };
-  const goBack = () => {
-    if (screen === "connect") {
-      goTo("start");
-      return;
-    }
-    const previous = onboardingSequence[Math.max(currentIndex - 1, 0)];
-    goTo(previous);
+
+  const goToStep = (step: number) => {
+    setState((current) => ({ ...current, currentStep: step }));
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const updateProfile = (key: keyof OnboardingProfile, value: string) => {
-    setProfile((current) => ({ ...current, [key]: value }));
+  const goNext = () => {
+    if (!canContinueFromStep(state.currentStep, state)) {
+      showOnboardingToast("Finish this step", getMissingRequirements(state.currentStep, state), "info");
+      return;
+    }
+
+    if (state.currentStep === 2) recordActivationEvent("company_context_completed", { hasWebsite: Boolean(state.website.trim()) });
+    if (state.currentStep === 6) {
+      finishOnboarding();
+      return;
+    }
+
+    goToStep(getNextStep(state.currentStep));
+  };
+
+  const goBack = () => {
+    goToStep(getPreviousStep(state.currentStep));
+  };
+
+  const chooseGoal = (goal: OnboardingGoal) => {
+    if (goal === "agency") {
+      showOnboardingToast("Agency mode is coming later", "Choose Sales, Personal Brand, or Consistency for this setup.", "info");
+      return;
+    }
+
+    updateState({ goal });
+    recordActivationEvent("goal_selected", { goal });
+  };
+
+  const chooseVoicePreset = (voicePreset: VoicePreset) => {
+    updateState({ voicePreset });
+    recordActivationEvent("voice_preset_selected", { voicePreset });
   };
 
   const connectAccount = (account: "LinkedIn" | "X" | "Slack" | "Telegram") => {
     setConnectingAccount(account);
-    if (account === "LinkedIn") setLinkedInState("connecting");
-    if (account === "X") setXState("connecting");
-    if (account === "Slack") setSlackState("connecting");
-    if (account === "Telegram") setTelegramState("connecting");
     window.setTimeout(() => {
-      if (account === "LinkedIn") setLinkedInState("connected");
-      if (account === "X") setXState("connected");
-      if (account === "Slack") setSlackState("connected");
-      if (account === "Telegram") setTelegramState("connected");
+      setState((current) => {
+        const connectedChannels = {
+          ...current.connectedChannels,
+          slack: account === "Slack" ? true : current.connectedChannels.slack,
+          telegram: account === "Telegram" ? true : current.connectedChannels.telegram,
+          linkedin: account === "LinkedIn" ? true : current.connectedChannels.linkedin,
+          x: account === "X" ? true : current.connectedChannels.x,
+        };
+        const commandChannel =
+          account === "Slack" ? "slack" : account === "Telegram" ? "telegram" : current.commandChannel;
+
+        return { ...current, connectedChannels, commandChannel };
+      });
+
+      if (account === "Slack" || account === "Telegram") {
+        recordActivationEvent("command_channel_connected", { account });
+      } else {
+        recordActivationEvent("publishing_channel_connected", { account });
+      }
+
       setConnectingAccount(null);
-    }, 1250);
+      showOnboardingToast(`${account} connected`, "Nothing goes live without your approval.");
+    }, 1100);
   };
 
-  if (screen === "start") {
-    return (
-      <OnboardingCanvas>
-        <OnboardingBrand />
-        <section className="onboarding-start-card">
-          <span className="onboarding-ai-pill">
-            <Sparkles size={14} />
-            Helixar setup
-          </span>
-          <h1>Helixar system, let's get started.</h1>
-          <p>Give Helixar the founder, company, and channel context it needs to write, post, and engage in your voice.</p>
-          <button className="onboarding-primary" type="button" onClick={() => goTo("connect")}>
-            Get started
-            <ChevronRight size={17} />
-          </button>
-        </section>
-      </OnboardingCanvas>
-    );
-  }
+  const addTarget = () => {
+    const value = targetEntry.trim();
+    if (!value || state.targets.length >= 3) return;
+
+    const target: OnboardingTarget = { id: `target-${Date.now()}`, value, type: inferEntryType(value) };
+    updateState({ targets: [...state.targets, target] });
+    setTargetEntry("");
+    recordActivationEvent("targets_or_benchmarks_added", { type: "target" });
+  };
+
+  const addBenchmark = () => {
+    const value = benchmarkEntry.trim();
+    if (!value || state.benchmarks.length >= 3) return;
+
+    const benchmark: OnboardingBenchmark = { id: `benchmark-${Date.now()}`, value, type: inferBenchmarkType(value) };
+    updateState({ benchmarks: [...state.benchmarks, benchmark] });
+    setBenchmarkEntry("");
+    recordActivationEvent("targets_or_benchmarks_added", { type: "benchmark" });
+  };
+
+  const addTopic = () => {
+    const value = topicEntry.trim();
+    if (!value || state.topics.length >= 3) return;
+
+    updateState({ topics: [...state.topics, value] });
+    setTopicEntry("");
+    recordActivationEvent("targets_or_benchmarks_added", { type: "topic" });
+  };
+
+  const removeTarget = (id: string) => {
+    updateState({ targets: state.targets.filter((target) => target.id !== id) });
+  };
+
+  const removeBenchmark = (id: string) => {
+    updateState({ benchmarks: state.benchmarks.filter((benchmark) => benchmark.id !== id) });
+  };
+
+  const removeTopic = (topic: string) => {
+    updateState({ topics: state.topics.filter((currentTopic) => currentTopic !== topic) });
+  };
+
+  const approvePost = (postId: string) => {
+    updateState({
+      firstPostApproved: true,
+      firstQueue: state.firstQueue.map((post) => (post.id === postId ? { ...post, status: "Approved" } : post)),
+    });
+    recordActivationEvent("first_post_approved", { postId });
+    showOnboardingToast("First post approved", "Approval captured. Nothing goes live without your approval.");
+  };
+
+  const startEditingPost = (post: FirstQueuePost) => {
+    setEditingPostId(post.id);
+    setEditingDraft(post.preview);
+  };
+
+  const savePostEdit = () => {
+    if (!editingPostId) return;
+
+    updateState({
+      firstQueue: state.firstQueue.map((post) =>
+        post.id === editingPostId ? { ...post, preview: editingDraft, status: "Edited" } : post,
+      ),
+    });
+    setEditingPostId(null);
+    setEditingDraft("");
+    showOnboardingToast("Draft updated");
+  };
+
+  const regeneratePost = (post: FirstQueuePost) => {
+    updateState({
+      firstQueue: state.firstQueue.map((currentPost) =>
+        currentPost.id === post.id ? regenerateQueuePost(state, currentPost) : currentPost,
+      ),
+    });
+    showOnboardingToast("Draft regenerated");
+  };
+
+  const sendQueue = () => {
+    const channel = state.commandChannel === "telegram" ? "Telegram" : "Slack";
+    updateState({ firstQueueSent: true });
+    recordActivationEvent("first_queue_sent", { channel });
+    showOnboardingToast(`Queue sent to ${channel}`, "Review and approval are ready.");
+  };
+
+  const finishOnboarding = (patch: Partial<OnboardingState> = {}) => {
+    const completedState = {
+      ...state,
+      ...patch,
+      completed: true,
+      started: true,
+      firstQueueGenerated: true,
+      firstQueue: patch.firstQueue ?? (state.firstQueue.length ? state.firstQueue : generateFirstQueue(state)),
+    };
+    saveOnboardingState(completedState);
+    recordActivationEvent("onboarding_completed", {
+      goal: completedState.goal,
+      commandChannel: completedState.commandChannel,
+      firstPostApproved: completedState.firstPostApproved,
+    });
+    onComplete();
+  };
+
+  const sendQueueAndComplete = () => {
+    const channel = state.commandChannel === "telegram" ? "Telegram" : "Slack";
+    if (!state.firstQueueSent) {
+      recordActivationEvent("first_queue_sent", { channel });
+      showOnboardingToast(`Queue sent to ${channel}`, "Review and approval are ready.");
+    }
+    finishOnboarding({ firstQueueSent: true });
+  };
+
+  const sharedFooter = (
+    <OnboardingFooter
+      currentStep={state.currentStep}
+      onBack={goBack}
+      onNext={goNext}
+      nextLabel={state.currentStep === 5 ? "Generate first queue" : "Next step"}
+      disabled={!canContinueFromStep(state.currentStep, state)}
+      helperText={!canContinueFromStep(state.currentStep, state) ? getMissingRequirements(state.currentStep, state) : undefined}
+    />
+  );
 
   return (
     <OnboardingCanvas>
       <OnboardingBrand />
-      <OnboardingProgress activeStep={getOnboardingProgressStep(screen)} />
-      {screen === "connect" ? (
-        <PrimaryConnectStep
-          profile={profile}
-          onChange={updateProfile}
-          linkedInState={linkedInState}
-          xState={xState}
-          onConnectLinkedIn={() => connectAccount("LinkedIn")}
-          onConnectX={() => connectAccount("X")}
-          onNext={goNext}
-          onBack={goBack}
+      <OnboardingProgress activeStep={state.currentStep} />
+      {state.currentStep === 0 ? <WelcomeStep onStart={startSetup} /> : null}
+      {state.currentStep === 1 ? (
+        <GoalSelectStep state={state} onChooseGoal={chooseGoal} footer={sharedFooter} />
+      ) : null}
+      {state.currentStep === 2 ? (
+        <CompanyContextStep state={state} onChange={updateState} footer={sharedFooter} />
+      ) : null}
+      {state.currentStep === 3 ? (
+        <VoiceCalibrationStep state={state} onChange={updateState} onChooseVoice={chooseVoicePreset} footer={sharedFooter} />
+      ) : null}
+      {state.currentStep === 4 ? (
+        <TargetsStep
+          state={state}
+          targetEntry={targetEntry}
+          benchmarkEntry={benchmarkEntry}
+          topicEntry={topicEntry}
+          onTargetEntryChange={setTargetEntry}
+          onBenchmarkEntryChange={setBenchmarkEntry}
+          onTopicEntryChange={setTopicEntry}
+          onAddTarget={addTarget}
+          onAddBenchmark={addBenchmark}
+          onAddTopic={addTopic}
+          onRemoveTarget={removeTarget}
+          onRemoveBenchmark={removeBenchmark}
+          onRemoveTopic={removeTopic}
+          footer={sharedFooter}
         />
       ) : null}
-      {screen === "review" ? <CompanyContextReviewStep profile={profile} onChange={updateProfile} onNext={goNext} onBack={goBack} /> : null}
-      {screen === "screening" ? <ScreeningQuestionsStep profile={profile} onNext={goNext} onBack={goBack} /> : null}
-      {screen === "channels" ? (
-        <FinalChannelsStep
-          slackState={slackState}
-          telegramState={telegramState}
-          onConnectSlack={() => connectAccount("Slack")}
-          onConnectTelegram={() => connectAccount("Telegram")}
-          onNext={goNext}
+      {state.currentStep === 5 ? (
+        <ConnectChannelsStep state={state} onConnect={connectAccount} footer={sharedFooter} />
+      ) : null}
+      {state.currentStep === 6 ? (
+        <FirstQueueStep
+          state={state}
+          editingPostId={editingPostId}
+          editingDraft={editingDraft}
+          onEditingDraftChange={setEditingDraft}
           onBack={goBack}
+          onApprove={approvePost}
+          onEdit={startEditingPost}
+          onSaveEdit={savePostEdit}
+          onCancelEdit={() => setEditingPostId(null)}
+          onRegenerate={regeneratePost}
+          onSendQueue={sendQueue}
+          onComplete={finishOnboarding}
+          onSendAndComplete={sendQueueAndComplete}
         />
       ) : null}
       {connectingAccount ? <ConnectionModal account={connectingAccount} /> : null}
+      <DemoToastView toast={toast} />
     </OnboardingCanvas>
   );
 }
 
-function getOnboardingProgressStep(screen: OnboardingScreen) {
-  if (screen === "connect") return 1;
-  if (screen === "review") return 2;
-  if (screen === "screening") return 3;
-  return 4;
-}
-
 function OnboardingCanvas({ children }: { children: ReactNode }) {
   return (
-    <main className="onboarding-canvas">
+    <main className="onboarding-canvas phase-one-onboarding">
       <div className="onboarding-bg-mark left" />
       <div className="onboarding-bg-mark right" />
       <div className="onboarding-content">{children}</div>
@@ -331,21 +968,26 @@ function OnboardingCanvas({ children }: { children: ReactNode }) {
 function OnboardingBrand() {
   return (
     <div className="onboarding-brand" aria-label="Helixar">
-      <span className="helixar-mark">H</span>
+      <span className="helixar-mark">
+        <img src="/assets/helixar-logo.png" alt="" />
+      </span>
       <strong>helixar</strong>
     </div>
   );
 }
 
 function OnboardingProgress({ activeStep }: { activeStep: number }) {
+  const activePhase = getOnboardingPhase(activeStep);
+
   return (
     <div className="onboarding-progress" aria-label="Onboarding progress">
-      {[1, 2, 3, 4].map((step) => (
-        <div className="onboarding-progress-item" key={step}>
-          <span className={step < activeStep ? "done" : step === activeStep ? "active" : undefined}>
-            {step < activeStep ? <Check size={15} /> : step}
+      {onboardingPhases.map((label, index) => (
+        <div className="onboarding-progress-item" key={label}>
+          <span className={index < activePhase ? "done" : index === activePhase ? "active" : undefined}>
+            {index < activePhase ? <Check size={14} /> : index + 1}
           </span>
-          {step < 4 ? <i /> : null}
+          <small>{label}</small>
+          {index < onboardingPhases.length - 1 ? <i /> : null}
         </div>
       ))}
     </div>
@@ -370,25 +1012,29 @@ function OnboardingCard({
 }
 
 function OnboardingFooter({
+  currentStep,
   onBack,
   onNext,
   nextLabel = "Next step",
-  leftNote,
+  helperText,
+  disabled,
 }: {
+  currentStep: number;
   onBack: () => void;
   onNext: () => void;
   nextLabel?: string;
-  leftNote?: string;
+  helperText?: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="onboarding-footer">
-      <button className="onboarding-back" type="button" onClick={onBack}>
+      <button className="onboarding-back" type="button" onClick={onBack} disabled={currentStep === 0}>
         <ChevronLeft size={15} />
         Previous
       </button>
       <div>
-        {leftNote ? <span>{leftNote}</span> : null}
-        <button className="onboarding-primary" type="button" onClick={onNext}>
+        {helperText ? <span>{helperText}</span> : null}
+        <button className="onboarding-primary" type="button" onClick={onNext} disabled={disabled}>
           {nextLabel}
           <ChevronRight size={16} />
         </button>
@@ -397,86 +1043,139 @@ function OnboardingFooter({
   );
 }
 
-function PrimaryConnectStep({
-  profile,
-  onChange,
-  linkedInState,
-  xState,
-  onConnectLinkedIn,
-  onConnectX,
-  onNext,
-  onBack,
+function WelcomeStep({ onStart }: { onStart: () => void }) {
+  return (
+    <section className="onboarding-start-card phase-one-welcome">
+      <span className="onboarding-ai-pill">
+        <Sparkles size={14} />
+        Helixar setup
+      </span>
+      <h1>Set up your Helixar Agent</h1>
+      <p>Connect the context Helixar needs to draft your first LinkedIn and X queue for approval.</p>
+      <button className="onboarding-primary" type="button" onClick={onStart}>
+        Start setup
+        <ChevronRight size={17} />
+      </button>
+    </section>
+  );
+}
+
+function GoalSelectStep({
+  state,
+  onChooseGoal,
+  footer,
 }: {
-  profile: OnboardingProfile;
-  onChange: (key: keyof OnboardingProfile, value: string) => void;
-  linkedInState: "idle" | "connecting" | "connected";
-  xState: "idle" | "connecting" | "connected";
-  onConnectLinkedIn: () => void;
-  onConnectX: () => void;
-  onNext: () => void;
-  onBack: () => void;
+  state: OnboardingState;
+  onChooseGoal: (goal: OnboardingGoal) => void;
+  footer: ReactNode;
 }) {
   return (
-    <OnboardingCard className="connect-step" stepLabel="Step 1 of 4">
+    <OnboardingCard className="wide-step goal-step" stepLabel="Step 1 of 4">
       <div className="onboarding-card-heading">
-        <h1>Connect your context</h1>
-        <p>LinkedIn, X, and your website are enough to build the first draft.</p>
+        <h1>What should Helixar optimize for?</h1>
+        <p>Pick the first operating mode. You can change it later.</p>
       </div>
-      <label className="onboarding-field onboarding-field-full onboarding-website-field">
-        <span>Website</span>
-        <input value={profile.website} onChange={(event) => onChange("website", event.target.value)} placeholder="https://yourcompany.com" />
-      </label>
-      <WebsiteAnalysisPreview website={profile.website} />
-      <div className="onboarding-connect-grid">
-        <article className="connect-account-card">
-          <div className="connect-account-head">
-            <span className="connect-icon linkedin"><Linkedin size={18} /></span>
-            <div>
-              <h3>Connect LinkedIn account</h3>
-              <p>{linkedInState === "connected" ? "Connected" : "For posts and comments"}</p>
-            </div>
-          </div>
-          <ul>
-            <li>Posts and comments</li>
-            <li>Relationship memory</li>
-            <li>Review before engagement</li>
-          </ul>
-          <button className="connect-linkedin-button" type="button" onClick={onConnectLinkedIn} disabled={linkedInState === "connected"}>
-            {linkedInState === "connected" ? "LinkedIn connected" : "Connect LinkedIn"}
+      <div className="goal-card-grid">
+        {goalOptions.map((option) => (
+          <button
+            className={`goal-card ${state.goal === option.id ? "active" : ""} ${option.primary ? "primary-goal" : ""}`}
+            type="button"
+            key={option.id}
+            onClick={() => onChooseGoal(option.id)}
+            aria-pressed={state.goal === option.id}
+          >
+            <span>{option.disabled ? "Later" : option.primary ? "Primary" : "Mode"}</span>
+            <strong>{option.title}</strong>
+            <p>{option.outcome}</p>
+            <small>{option.preview}</small>
           </button>
-        </article>
-
-        <article className="connect-account-card">
-          <div className="connect-account-head">
-            <span className="connect-icon x"><Twitter size={18} /></span>
-            <div>
-              <h3>Connect X account</h3>
-              <p>{xState === "connected" ? "Connected" : "For posts and replies"}</p>
-            </div>
-          </div>
-          <ul>
-            <li>Posts and threads</li>
-            <li>Reply suggestions</li>
-            <li>Daily limits</li>
-          </ul>
-          <button className="connect-x-button" type="button" onClick={onConnectX} disabled={xState === "connected"}>
-            {xState === "connected" ? "X connected" : "Connect X"}
-          </button>
-        </article>
+        ))}
       </div>
-      <OnboardingFooter onBack={onBack} onNext={onNext} nextLabel="Review draft" leftNote="Connect later" />
+      {footer}
     </OnboardingCard>
   );
 }
 
-function WebsiteAnalysisPreview({ website }: { website: string }) {
-  const displayWebsite = website || "your website";
+function CompanyContextStep({
+  state,
+  onChange,
+  footer,
+}: {
+  state: OnboardingState;
+  onChange: (patch: Partial<OnboardingState>) => void;
+  footer: ReactNode;
+}) {
+  const hasDraftSeed = Boolean((state.companyDescription || state.mainOffer) && state.targetCustomer);
 
+  return (
+    <div className="onboarding-split-screen">
+      <OnboardingCard className="company-context-step" stepLabel="Step 2 of 4">
+        <div className="onboarding-card-heading">
+          <h1>Tell Helixar what your company does</h1>
+          <p>Minimum context for useful drafts.</p>
+        </div>
+        <div className="onboarding-form-grid single">
+          <label className="onboarding-field">
+            <span>Website URL</span>
+            <input value={state.website} onChange={(event) => onChange({ website: event.target.value })} placeholder="https://yourcompany.com" />
+          </label>
+          {state.website.trim() ? <WebsiteAnalysisPreview website={state.website} /> : null}
+          <label className="onboarding-field">
+            <span>What do you sell?</span>
+            <textarea
+              value={state.companyDescription}
+              onChange={(event) => onChange({ companyDescription: event.target.value })}
+              placeholder="We help ______ do ______."
+            />
+          </label>
+          <label className="onboarding-field">
+            <span>Who do you sell to?</span>
+            <input
+              value={state.targetCustomer}
+              onChange={(event) => onChange({ targetCustomer: event.target.value })}
+              placeholder="B2B founders, marketing teams, agencies..."
+            />
+          </label>
+          <label className="onboarding-field">
+            <span>Main offer</span>
+            <textarea
+              value={state.mainOffer}
+              onChange={(event) => onChange({ mainOffer: event.target.value })}
+              placeholder="What do you want people to buy, book, or understand?"
+            />
+          </label>
+        </div>
+        {footer}
+      </OnboardingCard>
+      <AgentMemoryPanel
+        title="Agent Memory being created"
+        rows={[
+          ["Company context", state.website || state.companyDescription ? "added" : "pending"],
+          ["Offer", state.mainOffer ? "added" : "pending"],
+          ["Audience", state.targetCustomer ? "added" : "pending"],
+          ["Voice", "pending"],
+          ["Channels", "pending"],
+          ["First queue", "not generated yet"],
+        ]}
+      >
+        {hasDraftSeed ? (
+          <div className="memory-preview-card">
+            <span>Draft seed</span>
+            <strong>Helixar can now draft posts around:</strong>
+            <p>{state.mainOffer || "your offer"} for {state.targetCustomer}</p>
+          </div>
+        ) : null}
+      </AgentMemoryPanel>
+    </div>
+  );
+}
+
+function WebsiteAnalysisPreview({ website }: { website: string }) {
   return (
     <div className="website-analysis-card" aria-label="Website analysis preview">
       <div>
         <span className="analysis-pulse" />
-        <strong>Analyzing {displayWebsite}</strong>
+        <strong>Understanding {website}</strong>
         <p>Positioning, product, audience, proof</p>
       </div>
       <div className="analysis-lines" aria-hidden>
@@ -485,6 +1184,441 @@ function WebsiteAnalysisPreview({ website }: { website: string }) {
         <i />
       </div>
     </div>
+  );
+}
+
+function VoiceCalibrationStep({
+  state,
+  onChange,
+  onChooseVoice,
+  footer,
+}: {
+  state: OnboardingState;
+  onChange: (patch: Partial<OnboardingState>) => void;
+  onChooseVoice: (voicePreset: VoicePreset) => void;
+  footer: ReactNode;
+}) {
+  const handleVoiceSampleChange = (value: string) => {
+    if (!state.voiceSample.trim() && value.trim()) recordActivationEvent("voice_sample_added");
+    onChange({ voiceSample: value });
+  };
+
+  return (
+    <div className="onboarding-split-screen">
+      <OnboardingCard className="voice-calibration-step" stepLabel="Step 2 of 4">
+        <div className="onboarding-card-heading">
+          <h1>How should Helixar sound?</h1>
+          <p>The goal is content you would actually post.</p>
+        </div>
+        <div className="voice-preset-grid">
+          {voicePresetOptions.map((option) => (
+            <button
+              className={`voice-preset-card ${state.voicePreset === option.id ? "active" : ""}`}
+              type="button"
+              key={option.id}
+              onClick={() => onChooseVoice(option.id)}
+            >
+              <strong>{option.title}</strong>
+              <span>{option.preview}</span>
+            </button>
+          ))}
+        </div>
+        <label className="onboarding-field">
+          <span>Writing sample</span>
+          <textarea value={state.voiceSample} onChange={(event) => handleVoiceSampleChange(event.target.value)} placeholder="Paste a short sample here..." />
+        </label>
+        <label className="onboarding-field">
+          <span>Words or phrases to avoid</span>
+          <input
+            value={state.bannedWords}
+            onChange={(event) => onChange({ bannedWords: event.target.value })}
+            placeholder="unlock, leverage, game-changer, revolutionary, AI-powered"
+          />
+        </label>
+        {footer}
+      </OnboardingCard>
+      <AgentMemoryPanel
+        title="Agent Memory"
+        rows={[
+          ["Voice preset", getVoicePresetLabel(state.voicePreset)],
+          ["Writing sample", state.voiceSample ? "added" : "optional"],
+          ["Banned words", state.bannedWords ? "added" : "optional"],
+          ["Approval rule", "Ask before publishing"],
+        ]}
+      >
+        <div className="memory-preview-card">
+          <span>Voice preview</span>
+          <strong>{getVoiceOpening(state)}</strong>
+          <p>Nothing goes live without your approval.</p>
+        </div>
+      </AgentMemoryPanel>
+    </div>
+  );
+}
+
+function TargetsStep({
+  state,
+  targetEntry,
+  benchmarkEntry,
+  topicEntry,
+  onTargetEntryChange,
+  onBenchmarkEntryChange,
+  onTopicEntryChange,
+  onAddTarget,
+  onAddBenchmark,
+  onAddTopic,
+  onRemoveTarget,
+  onRemoveBenchmark,
+  onRemoveTopic,
+  footer,
+}: {
+  state: OnboardingState;
+  targetEntry: string;
+  benchmarkEntry: string;
+  topicEntry: string;
+  onTargetEntryChange: (value: string) => void;
+  onBenchmarkEntryChange: (value: string) => void;
+  onTopicEntryChange: (value: string) => void;
+  onAddTarget: () => void;
+  onAddBenchmark: () => void;
+  onAddTopic: () => void;
+  onRemoveTarget: (id: string) => void;
+  onRemoveBenchmark: (id: string) => void;
+  onRemoveTopic: (topic: string) => void;
+  footer: ReactNode;
+}) {
+  const isBrand = state.goal === "brand";
+  const isConsistency = state.goal === "consistency";
+  const entries = isBrand
+    ? state.benchmarks.map((benchmark) => ({ id: benchmark.id, value: benchmark.value, tag: benchmark.type }))
+    : isConsistency
+      ? state.topics.map((topic) => ({ id: topic, value: topic, tag: "topic" }))
+      : state.targets.map((target) => ({ id: target.id, value: target.value, tag: target.type }));
+  const heading = isBrand
+    ? "Whose market behavior should Helixar learn from?"
+    : isConsistency
+      ? "What should Helixar help you stay consistent around?"
+      : "Who should Helixar help you reach?";
+  const body = isBrand
+    ? "Helixar studies topic patterns, audience response, and positioning. It does not copy content."
+    : isConsistency
+      ? "Add topics, customer problems, or themes. You can refine this later."
+      : "Add people, companies, or customer types you want to warm up.";
+  const placeholder = isBrand
+    ? "LinkedIn/X profile, founder, competitor, brand..."
+    : isConsistency
+      ? "Customer problem, theme, or topic..."
+      : "LinkedIn profile, X profile, company domain, name...";
+  const currentValue = isBrand ? benchmarkEntry : isConsistency ? topicEntry : targetEntry;
+  const handleChange = isBrand ? onBenchmarkEntryChange : isConsistency ? onTopicEntryChange : onTargetEntryChange;
+  const handleAdd = isBrand ? onAddBenchmark : isConsistency ? onAddTopic : onAddTarget;
+
+  const removeEntry = (id: string) => {
+    if (isBrand) onRemoveBenchmark(id);
+    else if (isConsistency) onRemoveTopic(id);
+    else onRemoveTarget(id);
+  };
+
+  return (
+    <div className="onboarding-split-screen">
+      <OnboardingCard className="targets-step" stepLabel="Step 2 of 4">
+        <div className="onboarding-card-heading">
+          <h1>{heading}</h1>
+          <p>{body}</p>
+        </div>
+        {state.goal === "agency" ? (
+          <div className="onboarding-notice">
+            <strong>Agency mode is coming later.</strong>
+            <p>Choose Sales, Personal Brand, or Consistency for this setup.</p>
+          </div>
+        ) : (
+          <>
+            <div className="target-entry-row">
+              <input value={currentValue} onChange={(event) => handleChange(event.target.value)} placeholder={placeholder} />
+              <button className="secondary-button" type="button" onClick={handleAdd} disabled={!currentValue.trim() || entries.length >= 3}>
+                Add
+              </button>
+            </div>
+            <div className="target-chip-list">
+              {entries.length ? (
+                entries.map((entry) => (
+                  <button type="button" key={entry.id} onClick={() => removeEntry(entry.id)}>
+                    <span>{entry.tag}</span>
+                    {entry.value}
+                    <small>x</small>
+                  </button>
+                ))
+              ) : (
+                <span className="muted-chip">Skip for now</span>
+              )}
+            </div>
+            {isBrand ? <p className="onboarding-safe-copy">Studies market patterns, not copy content.</p> : null}
+          </>
+        )}
+        {footer}
+      </OnboardingCard>
+      <AgentMemoryPanel
+        title={isBrand ? "Benchmarks" : isConsistency ? "Topics" : "Targets"}
+        rows={[
+          [isBrand ? "Benchmarks added" : isConsistency ? "Topics added" : "Targets added", `${entries.length}/3`],
+          ["First queue inputs ready", state.targetCustomer ? "yes" : "no"],
+          ["Goal", getGoalLabel(state.goal)],
+          ["Voice", getVoicePresetLabel(state.voicePreset)],
+        ]}
+      />
+    </div>
+  );
+}
+
+function ConnectChannelsStep({
+  state,
+  onConnect,
+  footer,
+}: {
+  state: OnboardingState;
+  onConnect: (account: "LinkedIn" | "X" | "Slack" | "Telegram") => void;
+  footer: ReactNode;
+}) {
+  return (
+    <div className="onboarding-split-screen">
+      <OnboardingCard className="channels-step" stepLabel="Step 3 of 4">
+        <div className="onboarding-card-heading">
+          <h1>Where should Helixar operate?</h1>
+          <p>Operate Helixar from where you already work.</p>
+        </div>
+        <div className="trust-banner">
+          <CheckCircle2 size={16} />
+          Nothing goes live without your approval.
+        </div>
+        <div className="channel-section">
+          <span>Choose command channel</span>
+          <div className="channel-card-grid">
+            <ChannelConnectCard
+              icon={<PlatformLogo platform="Slack" />}
+              title="Slack"
+              description="Approve posts, review replies, and get updates."
+              connected={state.connectedChannels.slack}
+              buttonLabel={state.connectedChannels.slack ? "Slack connected" : "Connect Slack"}
+              onClick={() => onConnect("Slack")}
+            />
+            <ChannelConnectCard
+              icon={<PlatformLogo platform="Telegram" />}
+              title="Telegram"
+              description="Approve posts, send notes, and receive alerts."
+              connected={state.connectedChannels.telegram}
+              buttonLabel={state.connectedChannels.telegram ? "Telegram connected" : "Connect Telegram"}
+              onClick={() => onConnect("Telegram")}
+            />
+          </div>
+        </div>
+        <div className="channel-section">
+          <span>Connect publishing channels</span>
+          <div className="channel-card-grid">
+            <ChannelConnectCard
+              icon={<PlatformLogo platform="LinkedIn" />}
+              title="LinkedIn"
+              description="Publish approved LinkedIn posts."
+              connected={state.connectedChannels.linkedin}
+              optionalLabel={state.connectedChannels.linkedin ? "Connected" : "Required before publishing"}
+              buttonLabel={state.connectedChannels.linkedin ? "LinkedIn connected" : "Connect LinkedIn"}
+              onClick={() => onConnect("LinkedIn")}
+            />
+            <ChannelConnectCard
+              icon={<PlatformLogo platform="X" />}
+              title="X"
+              description="Publish approved X posts and threads."
+              connected={state.connectedChannels.x}
+              optionalLabel={state.connectedChannels.x ? "Connected" : "Required before publishing"}
+              buttonLabel={state.connectedChannels.x ? "X connected" : "Connect X"}
+              onClick={() => onConnect("X")}
+            />
+          </div>
+        </div>
+        {footer}
+      </OnboardingCard>
+      <AgentMemoryPanel
+        title="Approval path"
+        rows={[
+          ["Command channel", state.commandChannel ? `${state.commandChannel} connected` : "pending"],
+          ["Publishing", state.connectedChannels.linkedin || state.connectedChannels.x ? "connected" : "optional"],
+          ["Approval mode", "on"],
+          ["First queue", state.connectedChannels.slack || state.connectedChannels.telegram ? "ready to generate" : "pending"],
+        ]}
+      />
+    </div>
+  );
+}
+
+function ChannelConnectCard({
+  icon,
+  title,
+  description,
+  connected,
+  buttonLabel,
+  optionalLabel,
+  onClick,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  connected: boolean;
+  buttonLabel: string;
+  optionalLabel?: string;
+  onClick: () => void;
+}) {
+  return (
+    <article className={`channel-connect-card ${connected ? "connected" : ""}`}>
+      <div className="channel-connect-head">
+        <span>{icon}</span>
+        <div>
+          <strong>{title}</strong>
+          <p>{description}</p>
+        </div>
+      </div>
+      <div className="channel-connect-foot">
+        <small>{optionalLabel ?? (connected ? "Connected" : "Required")}</small>
+        <button className="secondary-button slim" type="button" onClick={onClick} disabled={connected}>
+          {buttonLabel}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function PlatformLogo({ platform }: { platform: "Slack" | "Telegram" | "LinkedIn" | "X" }) {
+  if (platform === "Slack") {
+    return (
+      <span className="platform-logo platform-slack" aria-label="Slack">
+        <i />
+        <i />
+        <i />
+        <i />
+      </span>
+    );
+  }
+
+  if (platform === "Telegram") {
+    return (
+      <span className="platform-logo platform-telegram" aria-label="Telegram">
+        <Send size={18} />
+      </span>
+    );
+  }
+
+  if (platform === "LinkedIn") {
+    return (
+      <span className="platform-logo platform-linkedin" aria-label="LinkedIn">
+        <Linkedin size={19} />
+      </span>
+    );
+  }
+
+  return (
+    <span className="platform-logo platform-x" aria-label="X">
+      X
+    </span>
+  );
+}
+
+function FirstQueueStep({
+  state,
+  editingPostId,
+  editingDraft,
+  onEditingDraftChange,
+  onBack,
+  onApprove,
+  onEdit,
+  onSaveEdit,
+  onCancelEdit,
+  onRegenerate,
+  onSendQueue,
+  onComplete,
+  onSendAndComplete,
+}: {
+  state: OnboardingState;
+  editingPostId: string | null;
+  editingDraft: string;
+  onEditingDraftChange: (value: string) => void;
+  onBack: () => void;
+  onApprove: (postId: string) => void;
+  onEdit: (post: FirstQueuePost) => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
+  onRegenerate: (post: FirstQueuePost) => void;
+  onSendQueue: () => void;
+  onComplete: () => void;
+  onSendAndComplete: () => void;
+}) {
+  const commandChannel = state.commandChannel === "telegram" ? "Telegram" : "Slack";
+
+  return (
+    <OnboardingCard className="wide-step first-queue-step" stepLabel="Step 4 of 4">
+      <div className="onboarding-card-heading">
+        <h1>Your first content queue is ready</h1>
+        <p>Approve one, edit one, or ask Helixar to regenerate.</p>
+      </div>
+      <div className="first-queue-grid">
+        {state.firstQueue.map((post) => (
+          <article className="first-post-card" key={post.id}>
+            <div className="first-post-top">
+              <span>{post.platform}</span>
+              <StatusBadge status={post.status} />
+            </div>
+            <h3>{post.hook}</h3>
+            {editingPostId === post.id ? (
+              <label className="onboarding-field">
+                <span>Edit draft</span>
+                <textarea value={editingDraft} onChange={(event) => onEditingDraftChange(event.target.value)} />
+              </label>
+            ) : (
+              <p>{post.preview}</p>
+            )}
+            <div className="first-post-meta">
+              <span>Why</span>
+              <strong>{post.whyCreated}</strong>
+              <span>Audience</span>
+              <strong>{post.targetAudience}</strong>
+              <span>Pillar</span>
+              <strong>{post.contentPillar}</strong>
+              <span>Signal</span>
+              <strong>{post.sourceSignal}</strong>
+              <span>Publishing</span>
+              <strong>{post.publishState}</strong>
+            </div>
+            <div className="first-post-actions">
+              {editingPostId === post.id ? (
+                <>
+                  <button type="button" onClick={onSaveEdit}>Save</button>
+                  <button type="button" onClick={onCancelEdit}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <button type="button" onClick={() => onApprove(post.id)}>Approve</button>
+                  <button type="button" onClick={() => onEdit(post)}>Edit</button>
+                  <button type="button" onClick={() => onRegenerate(post)}>Regenerate</button>
+                  <button type="button" onClick={onSendQueue}>Send to {commandChannel}</button>
+                </>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="onboarding-footer">
+        <button className="onboarding-back" type="button" onClick={onBack}>
+          <ChevronLeft size={15} />
+          Previous
+        </button>
+        <div>
+          <button className="onboarding-back" type="button" onClick={onComplete}>
+            Enter dashboard
+          </button>
+          <button className="onboarding-primary" type="button" onClick={onSendAndComplete}>
+            {state.firstQueueSent ? "Enter dashboard" : `Send queue to ${commandChannel}`}
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+    </OnboardingCard>
   );
 }
 
@@ -499,269 +1633,62 @@ function ConnectionModal({ account }: { account: "LinkedIn" | "X" | "Slack" | "T
     );
 
   return (
-    <div className="onboarding-modal-backdrop" role="dialog" aria-modal="true" aria-label={`Connecting to ${account}`}>
+    <div className="onboarding-modal-backdrop" role="dialog" aria-modal="true" aria-label={`Connecting ${account}`}>
       <div className="onboarding-connection-modal">
         <div className="modal-title-row">
-          <strong>Connect {account} account</strong>
+          <strong>Connect {account}</strong>
           <button type="button" aria-label="Close">
             x
           </button>
         </div>
         <span className={account === "LinkedIn" ? "modal-linkedin-icon" : account === "X" ? "modal-x-icon" : "modal-source-icon"}>{accountIcon}</span>
-        <h2>Connecting to {account}</h2>
-        <p>Please wait while Helixar checks account access and prepares the workspace context.</p>
+        <h2>Connecting {account}</h2>
+        <p>Helixar checks authorized access and prepares your approval workflow.</p>
+        {account === "LinkedIn" || account === "X" ? <p>Publishing only happens after approval.</p> : null}
         <LoaderCircle className="onboarding-loader" size={22} />
       </div>
     </div>
   );
 }
 
-function CompanyContextReviewStep({
-  profile,
-  onChange,
-  onNext,
-  onBack,
+function AgentMemoryPanel({
+  title,
+  rows,
+  children,
 }: {
-  profile: OnboardingProfile;
-  onChange: (key: keyof OnboardingProfile, value: string) => void;
-  onNext: () => void;
-  onBack: () => void;
-}) {
-  const founderName = profile.name || "Jay Patil";
-  const founderRole = profile.designation || "Founder";
-  const companyName = profile.companyName || "Helixar";
-  const website = profile.website || "Website not added";
-
-  return (
-    <div className="onboarding-review-workspace">
-      <OnboardingCard className="wide-step review-step" stepLabel="Step 2 of 4">
-        <span className="onboarding-ai-pill">
-          Scraped draft
-          <Sparkles size={12} />
-        </span>
-        <div className="onboarding-card-heading">
-          <h1>What Helixar understood</h1>
-          <p>Edit the draft or add context in the agent panel.</p>
-        </div>
-        <div className="onboarding-scroll-region">
-          <div className="company-review-grid">
-            <article className="review-summary-card">
-              <span>Founder</span>
-              <strong>{founderName}</strong>
-              <p>{founderRole}</p>
-            </article>
-            <article className="review-summary-card">
-              <span>Company</span>
-              <strong>{companyName}</strong>
-              <p>{website}</p>
-            </article>
-          </div>
-          <div className="onboarding-form-grid onboarding-profile-grid">
-            <label className="onboarding-field">
-              <span>Name</span>
-              <input value={profile.name} onChange={(event) => onChange("name", event.target.value)} placeholder="Jay Patil" />
-            </label>
-            <label className="onboarding-field">
-              <span>Role</span>
-              <input value={profile.designation} onChange={(event) => onChange("designation", event.target.value)} placeholder="Founder" />
-            </label>
-            <label className="onboarding-field">
-              <span>Company</span>
-              <input value={profile.companyName} onChange={(event) => onChange("companyName", event.target.value)} placeholder="Helixar" />
-            </label>
-            <label className="onboarding-field">
-              <span>Website</span>
-              <input value={profile.website} onChange={(event) => onChange("website", event.target.value)} placeholder="https://helixar.pro" />
-            </label>
-          </div>
-          <label className="onboarding-field onboarding-field-full">
-            <span>Company summary</span>
-            <textarea value={profile.companySummary} onChange={(event) => onChange("companySummary", event.target.value)} />
-          </label>
-          <div className="company-edit-panel">
-            <label className="onboarding-field">
-              <span>Product focus</span>
-              <textarea value={profile.productFocus} onChange={(event) => onChange("productFocus", event.target.value)} />
-            </label>
-            <label className="onboarding-field">
-              <span>Extra notes</span>
-              <textarea
-                value={profile.customNotes}
-                onChange={(event) => onChange("customNotes", event.target.value)}
-                placeholder="Audience, proof, claims to avoid..."
-              />
-            </label>
-          </div>
-        </div>
-        <OnboardingFooter onBack={onBack} onNext={onNext} nextLabel="Review rules" />
-      </OnboardingCard>
-      <OnboardingAgentPanel mode="review" />
-    </div>
-  );
-}
-
-function ScreeningQuestionsStep({
-  profile,
-  onNext,
-  onBack,
-}: {
-  profile: OnboardingProfile;
-  onNext: () => void;
-  onBack: () => void;
-}) {
-  const companyName = profile.companyName || "your company";
-
-  return (
-    <OnboardingCard className="wide-step voice-setup-step rules-review-step" stepLabel="Step 3 of 4">
-      <span className="onboarding-ai-pill">
-        Review
-        <Mic size={12} />
-      </span>
-      <div className="onboarding-card-heading">
-        <h1>Review voice rules</h1>
-        <p>Edit anything before Helixar enters the dashboard.</p>
-      </div>
-      <div className="onboarding-scroll-region compact">
-        <div className="voice-setup-grid">
-          <article className="voice-profile-card">
-            <span>Voice</span>
-            <strong>Direct, useful, founder-led</strong>
-            <p>Specific pain, clear opinions, practical proof.</p>
-          </article>
-          <article className="post-scan-card">
-            <div>
-              <span>Sources</span>
-              <strong>{companyName}</strong>
-            </div>
-            <ul>
-              <li>LinkedIn posts</li>
-              <li>X posts and replies</li>
-              <li>Website context</li>
-            </ul>
-          </article>
-        </div>
-        <div className="voice-question-list">
-          {[
-            "Core message",
-            "Repeated opinions",
-            "Avoid saying",
-            "Ask before",
-          ].map((question) => (
-            <label className="voice-question-card" key={question}>
-              <span>{question}</span>
-              <textarea placeholder="Edit the rule..." />
-              <button type="button">
-                <Mic size={15} />
-                Audio
-              </button>
-            </label>
-          ))}
-        </div>
-      </div>
-      <OnboardingFooter onBack={onBack} onNext={onNext} nextLabel="Connect team channels" leftNote="Editable later" />
-    </OnboardingCard>
-  );
-}
-
-function FinalChannelsStep({
-  slackState,
-  telegramState,
-  onConnectSlack,
-  onConnectTelegram,
-  onNext,
-  onBack,
-}: {
-  slackState: "idle" | "connecting" | "connected";
-  telegramState: "idle" | "connecting" | "connected";
-  onConnectSlack: () => void;
-  onConnectTelegram: () => void;
-  onNext: () => void;
-  onBack: () => void;
+  title: string;
+  rows: [string, string][];
+  children?: ReactNode;
 }) {
   return (
-    <OnboardingCard className="wide-step final-channel-step" stepLabel="Step 4 of 4">
-      <span className="onboarding-ai-pill">
-        Team context
-        <MessageSquareReply size={12} />
-      </span>
-      <div className="onboarding-card-heading">
-        <h1>Connect team channels</h1>
-        <p>Slack and Telegram add live context.</p>
-      </div>
-      <div className="final-channel-grid">
-        <article className="connect-account-card final-channel-card">
-          <div className="connect-account-head">
-            <span className="channel-source-icon"><SourceBadge source="Slack" /></span>
-            <div>
-              <h3>Connect Slack</h3>
-              <p>{slackState === "connected" ? "Connected" : "Customer notes"}</p>
-            </div>
-          </div>
-          <ul>
-            <li>Customer phrasing</li>
-            <li>Content ideas</li>
-            <li>Review mode</li>
-          </ul>
-          <button className="connect-secondary-button" type="button" onClick={onConnectSlack} disabled={slackState === "connected"}>
-            {slackState === "connected" ? "Slack connected" : "Connect Slack"}
-          </button>
-        </article>
-        <article className="connect-account-card final-channel-card">
-          <div className="connect-account-head">
-            <span className="channel-source-icon"><SourceBadge source="Telegram" /></span>
-            <div>
-              <h3>Connect Telegram</h3>
-              <p>{telegramState === "connected" ? "Connected" : "Founder notes"}</p>
-            </div>
-          </div>
-          <ul>
-            <li>Quick notes</li>
-            <li>Draft context</li>
-            <li>Relationship memory</li>
-          </ul>
-          <button className="connect-secondary-button" type="button" onClick={onConnectTelegram} disabled={telegramState === "connected"}>
-            {telegramState === "connected" ? "Telegram connected" : "Connect Telegram"}
-          </button>
-        </article>
-      </div>
-      <OnboardingFooter onBack={onBack} onNext={onNext} nextLabel="Enter dashboard" leftNote="You can connect these later" />
-    </OnboardingCard>
-  );
-}
-
-function OnboardingAgentPanel({ mode }: { mode: "review" }) {
-  return (
-    <aside className={`onboarding-agent-panel ${mode}`}>
+    <aside className="memory-panel">
       <div className="agent-panel-head">
         <span>
           <Rocket size={16} />
         </span>
         <div>
-          <strong>Helixar Agent</strong>
-          <p>Talk through the missing context</p>
+          <strong>{title}</strong>
+          <p>Live setup state</p>
         </div>
       </div>
-      <div className="agent-question-list">
-        {["Who do you sell to?", "What should posts repeat?", "What should Helixar avoid?", "When should it ask you?"].map((question) => (
-          <button type="button" key={question}>{question}</button>
+      <div className="memory-row-list">
+        {rows.map(([label, value]) => (
+          <MemoryRow key={label} label={label} value={value} />
         ))}
       </div>
-      <div className="agent-composer">
-        <label className="agent-panel-input">
-          <span>Answer here</span>
-          <textarea placeholder="Type naturally. Add audience, tone, boundaries, examples..." />
-        </label>
-        <div className="agent-panel-actions">
-          <button type="button">
-            <Mic size={15} />
-          </button>
-          <button type="button">
-            <Send size={15} />
-            Send
-          </button>
-        </div>
-      </div>
+      {children}
     </aside>
+  );
+}
+
+function MemoryRow({ label, value }: { label: string; value: string }) {
+  const isDone = !["pending", "optional", "not generated yet", "no"].includes(value.toLowerCase());
+
+  return (
+    <div className={`memory-row ${isDone ? "done" : ""}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
@@ -775,7 +1702,7 @@ function Sidebar({
   return (
     <aside className="icon-rail" aria-label="Primary navigation">
       <button className="brand-mark" type="button" aria-label="Dashboard" onClick={() => onNavigate("/dashboard")}>
-        H
+        <img src="/assets/helixar-logo.png" alt="" />
       </button>
 
       <nav>
@@ -921,6 +1848,21 @@ function DashboardPage({
   const agentOutputTotal = demoContentFlows.reduce((sum, flow) => sum + flow.drafts + flow.published + flow.replies, 0);
   const warmIcpTotal = demoContentFlows.reduce((sum, flow) => sum + flow.warmICPs, 0);
   const agentUpdates = demoContentFlows.slice(0, 4);
+  const onboardingHandoff = loadOnboardingState();
+  const hasOnboardingHandoff = onboardingHandoff.completed || onboardingHandoff.firstQueueGenerated;
+  const handoffChannel =
+    onboardingHandoff.commandChannel === "telegram"
+      ? "Telegram"
+      : onboardingHandoff.commandChannel === "slack"
+        ? "Slack"
+        : "Slack/Telegram";
+  const handoffQueueCount = onboardingHandoff.firstQueue.length || 3;
+  const handoffPendingActions = [
+    !onboardingHandoff.firstPostApproved ? "Approve first post" : "",
+    !onboardingHandoff.connectedChannels.linkedin ? "Connect LinkedIn before publishing" : "",
+    onboardingHandoff.goal === "sales" && onboardingHandoff.targets.length === 0 ? "Add target accounts" : "",
+    onboardingHandoff.goal === "brand" && onboardingHandoff.benchmarks.length === 0 ? "Add benchmarks" : "",
+  ].filter(Boolean);
 
   return (
     <div className="page-stack dashboard-page">
@@ -945,6 +1887,42 @@ function DashboardPage({
           ))}
         </div>
       </section>
+
+      {hasOnboardingHandoff ? (
+        <section className="dashboard-activation-strip" aria-label="Onboarding handoff">
+          <article className="activation-card">
+            <span>System</span>
+            <strong>Helixar is active</strong>
+            <p>{getGoalLabel(onboardingHandoff.goal)}</p>
+          </article>
+          <article className="activation-card">
+            <span>Queue</span>
+            <strong>{handoffQueueCount} posts drafted</strong>
+            <p>{onboardingHandoff.firstQueueSent ? `Sent to ${handoffChannel}` : "Waiting for approval"}</p>
+          </article>
+          <article className="activation-card">
+            <span>Approval</span>
+            <strong>Approval mode on</strong>
+            <p>Nothing goes live without your approval.</p>
+          </article>
+          <article className="activation-card">
+            <span>Command</span>
+            <strong>{handoffChannel} connected</strong>
+            <p>{onboardingHandoff.connectedChannels.linkedin || onboardingHandoff.connectedChannels.x ? "Publishing channel ready" : "Publishing connection pending"}</p>
+          </article>
+          {handoffPendingActions.length ? (
+            <div className="activation-pending-list">
+              <span>Next actions</span>
+              {handoffPendingActions.map((action) => (
+                <button key={action} type="button" onClick={() => onNavigate(action.includes("LinkedIn") ? "/settings" : "/queue")}>
+                  {action}
+                  <ChevronRight size={14} />
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="agent-summary-grid" aria-label="Agent summary">
         <article className="agent-summary-card">
